@@ -5,6 +5,7 @@ import { getConvexClient } from '@/lib/convex';
 import { getContactSettings, getSEOSettings, getSiteSettings, getSocialSettings } from '@/lib/get-settings';
 import { buildSeoMetadata } from '@/lib/seo/metadata';
 import { buildSiteSchemas } from '@/lib/seo/schema-policy';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
 
 const resolveUrl = (url: string, baseUrl: string): string => {
@@ -99,6 +100,7 @@ const SiteLayout = ({
           ))}
           {headerItems.length > 0 && <JsonLd data={navigationSchema} />}
           {children}
+          <SpeedInsights />
         </SiteShell>
       </div>
     );
