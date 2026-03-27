@@ -70,3 +70,5 @@
 - Rollback đơn giản: gỡ dependency và xóa `<SpeedInsights />` khỏi `app/(site)/layout.tsx`.
 
 Nếu bạn xác nhận spec này, mình sẽ triển khai đúng theo hướng trên.
+## Deploy Note
+- Nếu Vercel fail ở bước `npm install` do peer conflict optional, dùng `.npmrc` với `legacy-peer-deps=true` để bỏ qua.
