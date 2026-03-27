@@ -285,6 +285,7 @@ export function useModuleConfig(config: ModuleDefinition) {
     }
      setIsSaving(true);
      try {
+      const hasSiteUrlChanged = moduleKey === 'settings' && localSettings.site_url !== serverSettings.site_url;
        const promises: Promise<unknown>[] = [];
        
        // Collect feature updates
@@ -334,6 +335,26 @@ export function useModuleConfig(config: ModuleDefinition) {
        }
        
        await Promise.all(promises);
+      if (hasSiteUrlChanged) {
+        const revalidateSecret = process.env.NEXT_PUBLIC_SEO_REVALIDATE_SECRET;
+        if (!revalidateSecret) {
+          toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
+        } else {
+          fetch('/api/internal/seo/revalidate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-seo-revalidate-secret': revalidateSecret,
+            },
+          }).then((response) => {
+            if (!response.ok) {
+              toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
+            }
+          }).catch(() => {
+            toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
+          });
+        }
+      }
        toast.success('Đã lưu cấu hình!');
      } catch (error) {
        toast.error(error instanceof Error ? error.message : 'Có lỗi xảy ra');
