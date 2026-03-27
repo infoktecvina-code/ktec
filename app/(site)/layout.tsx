@@ -2,7 +2,7 @@ import { JsonLd, generateNavigationSchema } from '@/components/seo/JsonLd';
 import { SiteShell } from '@/components/site/SiteShell';
 import { api } from '@/convex/_generated/api';
 import { getConvexClient } from '@/lib/convex';
-import { getContactSettings, getSEOSettings, getSiteSettings, getSocialSettings } from '@/lib/get-settings';
+import { getPublicSettings } from '@/lib/get-settings';
 import { buildSeoMetadata } from '@/lib/seo/metadata';
 import { buildSiteSchemas } from '@/lib/seo/schema-policy';
 import { SpeedInsights } from '@vercel/speed-insights/next';
@@ -19,12 +19,7 @@ const resolveUrl = (url: string, baseUrl: string): string => {
 };
 
 export const generateMetadata = (): Promise<Metadata> => {
-  return Promise.all([
-    getSiteSettings(),
-    getSEOSettings(),
-    getContactSettings(),
-    getSocialSettings(),
-  ]).then(([site, seo, contact, social]) => {
+  return getPublicSettings().then(({ site, seo, contact, social }) => {
     return {
       ...buildSeoMetadata({
         contact,
@@ -50,21 +45,19 @@ const SiteLayout = ({
 }: {
   children: React.ReactNode;
 }): Promise<React.ReactElement> => {
+  const client = getConvexClient();
   return Promise.all([
-    getSiteSettings(),
-    getSEOSettings(),
-    getContactSettings(),
-    getSocialSettings(),
-  ]).then(async ([site, seo, contact, social]) => {
+    getPublicSettings(),
+    client.query(api.menus.getMenuByLocation, { location: 'header' }),
+    client.query(api.settings.getMultiple, {
+      keys: ['header_style', 'header_config'],
+    }),
+  ]).then(async ([publicSettings, headerMenu, headerSettings]) => {
+    const { site, seo, contact, social } = publicSettings;
     const baseUrl = (site.site_url || process.env.NEXT_PUBLIC_SITE_URL) ?? '';
-    const client = getConvexClient();
-    const headerMenu = await client.query(api.menus.getMenuByLocation, { location: 'header' });
     const headerItems = headerMenu
       ? await client.query(api.menus.listActiveMenuItems, { menuId: headerMenu._id })
       : [];
-    const headerSettings = await client.query(api.settings.getMultiple, {
-      keys: ['header_style', 'header_config'],
-    });
     const initialHeaderData = {
       contact: {
         contact_email: contact.contact_email,
