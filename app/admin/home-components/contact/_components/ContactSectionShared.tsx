@@ -227,7 +227,7 @@ const getDisplayItems = (config: ContactConfigState, isPreview: boolean) => {
 const renderItemValue = (item: ContactConfigState['contactItems'][number], tokens: ContactColorTokens, isPreview: boolean, className = 'text-sm') => {
   const displayValue = item.value?.trim() || item.href?.trim() || (isPreview ? 'Chưa có nội dung' : '');
   if (!displayValue) {return null;}
-  const content = <span className={className} style={{ color: tokens.valueText }}>{displayValue}</span>;
+  const content = <span className={cn(className, 'whitespace-pre-line')} style={{ color: tokens.valueText }}>{displayValue}</span>;
 
   if (!item.href) {return content;}
   const isExternal = item.href.startsWith('http');
@@ -236,7 +236,7 @@ const renderItemValue = (item: ContactConfigState['contactItems'][number], token
       href={item.href}
       target={isExternal ? '_blank' : undefined}
       rel={isExternal ? 'noopener noreferrer' : undefined}
-      className={className}
+      className={cn(className, 'whitespace-pre-line')}
       style={{ color: tokens.valueText }}
     >
       {displayValue}
