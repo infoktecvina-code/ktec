@@ -9,7 +9,7 @@ export type PreviewImageProps = Omit<React.ComponentProps<typeof Image>, 'width'
   height?: number | string;
 };
 
-export const PreviewImage = ({ src, alt = '', width = 1200, height = 800, ...rest }: PreviewImageProps) => {
+export const PreviewImage = ({ src, alt, width = 1200, height = 800, ...rest }: PreviewImageProps) => {
   if (!src) {return null;}
   const normalizedWidth = typeof width === 'string' ? Number.parseInt(width, 10) || 1200 : width;
   const normalizedHeight = typeof height === 'string' ? Number.parseInt(height, 10) || 800 : height;

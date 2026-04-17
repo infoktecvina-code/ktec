@@ -150,7 +150,7 @@ async function normalizeOrderItems(
   }
 
   const products = await Promise.all(items.map((item) => ctx.db.get(item.productId)));
-  const variants = await Promise.all(items.map((item) => (item.variantId ? ctx.db.get(item.variantId) : null)));
+  const variants = await Promise.all(items.map((item) => item.variantId ? ctx.db.get(item.variantId) : Promise.resolve(null)));
 
   return Promise.all(items.map(async (item, index) => {
     const product = products[index];
@@ -194,7 +194,7 @@ async function decrementVariantStock(ctx: MutationCtx, items: OrderItemInput[]) 
   await Promise.all(variantItems.map((item, index) => {
     const variant = variants[index];
     if (!variant || variant.stock === undefined) {
-      return null;
+      return Promise.resolve();
     }
     const nextStock = Math.max(0, variant.stock - item.quantity);
     return ctx.db.patch(variant._id, { stock: nextStock });
@@ -217,7 +217,7 @@ async function decrementProductStock(ctx: MutationCtx, items: OrderItemInput[]) 
 
   await Promise.all(products.map((product, index) => {
     if (!product || product.stock === undefined) {
-      return null;
+      return Promise.resolve();
     }
     const quantity = quantities.get(productIds[index]) ?? 0;
     const nextStock = Math.max(0, product.stock - quantity);
@@ -258,7 +258,7 @@ async function validateStockBeforeCreate(
 
   const [products, variants] = await Promise.all([
     Promise.all(items.map((item) => ctx.db.get(item.productId))),
-    Promise.all(items.map((item) => (item.variantId ? ctx.db.get(item.variantId) : null))),
+    Promise.all(items.map((item) => item.variantId ? ctx.db.get(item.variantId) : Promise.resolve(null))),
   ]);
 
   for (const [index, item] of items.entries()) {
