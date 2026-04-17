@@ -2942,12 +2942,19 @@ function GallerySection({ config, brandColor, secondary, mode, title, type }: { 
 // Best Practices: Clear navigation, visual appeal, mobile optimization, hover effects
 // 6 styles: grid, carousel, cards, minimal, marquee, circular
 import { getCategoryIcon } from '@/app/admin/components/CategoryImageSelector';
+import { resolveProductCategoryHref } from '@/app/admin/home-components/product-categories/_lib/links';
 
 type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'minimal' | 'marquee' | 'circular';
 
 function ProductCategoriesSection({ config, brandColor, secondary, mode, title }: { config: Record<string, unknown>; brandColor: string;
   secondary: string; mode: 'single' | 'dual'; title: string }) {
-  const categoriesConfig = (config.categories as { categoryId: string; customImage?: string; imageMode?: string }[]) || [];
+  const categoriesConfig = (config.categories as {
+    categoryId: string;
+    customImage?: string;
+    imageMode?: string;
+    linkMode?: 'default' | 'custom';
+    customLinkValue?: string;
+  }[]) || [];
   const style = (config.style as ProductCategoriesStyle) || 'grid';
   const productCatCarouselId = useSafeId('productcat-carousel');
   const showProductCount = (config.showProductCount as boolean) ?? true;
@@ -3060,9 +3067,10 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
         displayImage,
         displayIcon,
         productCount: productCountMap[item.categoryId] || 0,
+        href: resolveProductCategoryHref(item, cat.slug),
       };
     })
-    .filter(Boolean) as { id: string; name: string; slug: string; image?: string; description?: string; displayImage?: string; displayIcon?: string; productCount: number }[];
+    .filter(Boolean) as { id: string; name: string; slug: string; image?: string; description?: string; displayImage?: string; displayIcon?: string; productCount: number; href: string }[];
 
   const getGridCols = () => {
     switch (columnsDesktop) {
@@ -3163,7 +3171,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
             {gridItems.map((cat) => (
               <a 
                 key={cat.id}
-                href={`/products?category=${cat.slug}`}
+                href={cat.href}
                 className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer transition-all duration-300"
                 style={{ boxShadow: colors.cardShadow, border: `1px solid ${colors.cardBorder}` }}
                 onMouseEnter={(e) => {
@@ -3285,7 +3293,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
               {resolvedCategories.map((cat) => (
                 <a
                   key={cat.id}
-                  href={`/products?category=${cat.slug}`}
+                  href={cat.href}
                   className="snap-start flex-shrink-0 group cursor-pointer"
                   style={getCarouselItemStyle()}
                   draggable={false}
@@ -3327,7 +3335,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
             {visibleCategories.map((cat) => (
               <a 
                 key={cat.id}
-                href={`/products?category=${cat.slug}`}
+                href={cat.href}
                 className="group bg-white rounded-xl overflow-hidden flex cursor-pointer transition-all"
                 style={{ border: `1px solid ${colors.cardBorder}` }}
                 onMouseEnter={(e) => {
@@ -3378,7 +3386,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
               return (
                 <a 
                   key={cat.id}
-                  href={`/products?category=${cat.slug}`}
+                  href={cat.href}
                   className="flex items-center gap-2 px-3 md:px-4 py-2 md:py-2.5 rounded-full cursor-pointer transition-all min-w-0"
                   style={{ backgroundColor: colors.pillBg, border: `1px solid ${colors.pillBorder}` }}
                   onMouseEnter={(e) => {
@@ -3432,7 +3440,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
             {resolvedCategories.map((cat) => (
               <a
                 key={cat.id}
-                href={`/products?category=${cat.slug}`}
+                href={cat.href}
                 className="flex-shrink-0 snap-start group flex flex-col items-center"
                 style={getCircularItemStyle()}
               >
@@ -3528,7 +3536,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
             {[...visibleCategories, ...visibleCategories].map((cat, idx) => (
               <a 
                 key={`${cat.id}-${idx}`}
-                href={`/products?category=${cat.slug}`}
+                href={cat.href}
                 className="flex-shrink-0 flex items-center gap-3 px-4 py-3 rounded-full cursor-pointer mx-2 bg-white"
                 style={{ border: `2px solid ${colors.pillBorder}`, boxShadow: colors.cardShadow, backgroundColor: colors.neutral.surface }}
               >

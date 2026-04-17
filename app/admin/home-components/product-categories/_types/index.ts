@@ -2,12 +2,18 @@
 
 export type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'minimal' | 'marquee' | 'circular';
 export type ProductCategoriesBrandMode = 'single' | 'dual';
+export type ProductCategoryLinkMode = 'default' | 'custom';
+export type ProductCategoryCustomLinkType = 'product' | 'external';
 
 export interface CategoryConfigItem {
   id: number;
   categoryId: string;
   customImage?: string;
   imageMode?: 'product-image' | 'default' | 'icon' | 'upload' | 'url';
+  linkMode?: ProductCategoryLinkMode;
+  customLinkType?: ProductCategoryCustomLinkType;
+  customLinkValue?: string;
+  sourceProductId?: string;
 }
 
 export interface CategoryData {

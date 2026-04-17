@@ -36,6 +36,7 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
   const component = useQuery(api.homeComponents.getById, { id: id as Id<"homeComponents"> });
   const updateMutation = useMutation(api.homeComponents.update);
   const productCategoriesData = useQuery(api.productCategories.listActive);
+  const productsData = useQuery(api.products.listPublicResolved, { limit: 100 });
 
   const [title, setTitle] = useState('');
   const [active, setActive] = useState(true);
@@ -68,11 +69,15 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
       setActive(component.active);
 
       const config = component.config ?? {};
-      const categories = config.categories?.map((c: { categoryId: string; customImage?: string; imageMode?: string }, i: number) => ({
+      const categories = config.categories?.map((c: { categoryId: string; customImage?: string; imageMode?: string; linkMode?: 'default' | 'custom'; customLinkType?: 'product' | 'external'; customLinkValue?: string; sourceProductId?: string }, i: number) => ({
         categoryId: c.categoryId,
         customImage: c.customImage ?? '',
         id: i,
-        imageMode: (c.imageMode as 'product-image' | 'default' | 'icon' | 'upload' | 'url') || 'default'
+        imageMode: (c.imageMode as 'product-image' | 'default' | 'icon' | 'upload' | 'url') || 'default',
+        linkMode: c.linkMode ?? 'default',
+        customLinkType: c.customLinkType,
+        customLinkValue: c.customLinkValue ?? '',
+        sourceProductId: c.sourceProductId,
       })) ?? [];
       const style = (config.style as ProductCategoriesStyle) || 'grid';
       const showProductCount = config.showProductCount ?? true;
@@ -144,6 +149,11 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) {return;}
+    const invalidItem = productCategoriesItems.find((item) => item.linkMode === 'custom' && !item.customLinkValue?.trim());
+    if (invalidItem) {
+      toast.error('Custom link đang bật nhưng chưa có URL đích');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -154,6 +164,10 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
             categoryId: c.categoryId,
             customImage: c.customImage || undefined,
             imageMode: c.imageMode ?? 'default',
+            linkMode: c.linkMode ?? 'default',
+            customLinkType: c.customLinkType,
+            customLinkValue: c.customLinkValue?.trim() || undefined,
+            sourceProductId: c.sourceProductId,
           })),
           columnsDesktop: productCategoriesColsDesktop,
           columnsMobile: productCategoriesColsMobile,
@@ -226,6 +240,11 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
   }
 
   const fontStyle = { '--font-active': `var(${effectiveFont.fontVariable})` } as React.CSSProperties;
+  const availableProducts = (productsData ?? []).map((product) => ({
+    _id: product._id,
+    name: product.name,
+    slug: product.slug,
+  }));
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
@@ -282,6 +301,7 @@ export default function ProductCategoriesEditPage({ params }: { params: Promise<
           productCategoriesShowCount={productCategoriesShowCount}
           setProductCategoriesShowCount={setProductCategoriesShowCount}
           productCategoriesData={productCategoriesData ?? []}
+          productsData={availableProducts}
           brandColor={effectiveColors.primary}
         />
 

@@ -13,6 +13,7 @@ import { deviceWidths, usePreviewDevice } from '../../_shared/hooks/usePreviewDe
 import { getCategoryIcon } from '@/app/admin/components/CategoryImageSelector';
 import { PRODUCT_CATEGORIES_STYLES } from '../_lib/constants';
 import { getProductCategoriesColors } from '../_lib/colors';
+import { resolveProductCategoryHref } from '../_lib/links';
 import type {
   CategoryData,
   ProductCategoriesBrandMode,
@@ -106,9 +107,10 @@ export const ProductCategoriesPreview = ({
         displayImage,
         displayIcon,
         imageMode,
+        href: resolveProductCategoryHref(item, cat.slug),
       };
     })
-    .filter(Boolean) as (CategoryData & { itemId: number; displayImage?: string; displayIcon?: string; imageMode: string })[];
+    .filter(Boolean) as (CategoryData & { itemId: number; displayImage?: string; displayIcon?: string; imageMode: string; href: string })[];
 
   const getColumnsByDevice = () => {
     if (isMobile) {return config.columnsMobile || 2;}
@@ -218,8 +220,9 @@ export const ProductCategoriesPreview = ({
           {resolvedCategories.length === 0 ? renderEmptyState() : (
             <div className={containerClass}>
               {gridItems.map((cat) => (
-                <div 
+                <a 
                   key={cat.itemId} 
+                  href={cat.href}
                   className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer transition-all duration-300"
                   style={{ 
                     boxShadow: colors.cardShadow,
@@ -245,7 +248,7 @@ export const ProductCategoriesPreview = ({
                       <p className="text-xs mt-0.5" style={{ color: colors.productCountText }}>12 sản phẩm</p>
                     )}
                   </div>
-                </div>
+                </a>
               ))}
               
               {remainingCount > 0 && resolvedCategories.length > 2 && (
@@ -294,8 +297,9 @@ export const ProductCategoriesPreview = ({
               style={{ '--carousel-gap': isMobile ? '12px' : '16px' } as React.CSSProperties}
             >
               {resolvedCategories.map((cat) => (
-                <div 
+                <a 
                   key={cat.itemId} 
+                  href={cat.href}
                   className="flex-shrink-0 group cursor-pointer"
                   style={getCarouselItemStyle()}
                 >
@@ -313,7 +317,7 @@ export const ProductCategoriesPreview = ({
                   {config.showProductCount && (
                     <p className="text-xs text-center" style={{ color: colors.productCountText }}>12 sản phẩm</p>
                   )}
-                </div>
+                </a>
               ))}
             </div>
           </div>
@@ -342,8 +346,9 @@ export const ProductCategoriesPreview = ({
           {resolvedCategories.length === 0 ? renderEmptyState() : (
             <div className={cn("grid", getGridCols(), isMobile ? 'gap-3' : 'gap-4')}>
               {displayItems.map((cat) => (
-                <div 
+                <a 
                   key={cat.itemId} 
+                  href={cat.href}
                   className="group bg-white dark:bg-slate-800 rounded-xl overflow-hidden flex cursor-pointer transition-all"
                   style={{ border: `1px solid ${colors.cardBorder}` }}
                   onMouseEnter={(e) => {
@@ -368,7 +373,7 @@ export const ProductCategoriesPreview = ({
                       Xem sản phẩm <ArrowRight size={12} />
                     </span>
                   </div>
-                </div>
+                </a>
               ))}
             </div>
           )}
@@ -397,8 +402,9 @@ export const ProductCategoriesPreview = ({
             {visibleCategories.map((cat) => {
               const iconData = cat.displayIcon ? getCategoryIcon(cat.displayIcon) : null;
               return (
-                <div 
+                <a 
                   key={cat.itemId} 
+                  href={cat.href}
                   className={cn(
                     "flex items-center gap-2 rounded-full cursor-pointer transition-all min-w-0",
                     isMobile ? 'px-3 py-2' : 'px-4 py-2.5'
@@ -433,7 +439,7 @@ export const ProductCategoriesPreview = ({
                   {config.showProductCount && (
                     <span className="text-xs" style={{ color: colors.productCountText }}>(12)</span>
                   )}
-                </div>
+                </a>
               );
             })}
           </div>
@@ -465,8 +471,9 @@ export const ProductCategoriesPreview = ({
             
             <div className="flex animate-marquee">
               {[...visibleCategories, ...visibleCategories].map((cat, idx) => (
-                <div 
+                <a 
                   key={`${cat._id}-${idx}`} 
+                  href={cat.href}
                   className={cn(
                     "flex-shrink-0 flex items-center gap-3 rounded-full cursor-pointer mx-2 transition-all",
                     isMobile ? 'px-3 py-2' : 'px-4 py-3'
@@ -489,7 +496,7 @@ export const ProductCategoriesPreview = ({
                     )}
                   </div>
                   <ArrowUpRight size={14} style={{ color: colors.arrowIcon }} className="flex-shrink-0" />
-                </div>
+                </a>
               ))}
             </div>
           </div>
@@ -623,8 +630,9 @@ export const ProductCategoriesPreview = ({
               style={{ scrollBehavior: 'auto', WebkitOverflowScrolling: 'touch', '--circular-gap': '20px' } as React.CSSProperties}
             >
               {resolvedCategories.map((cat) => (
-                <div
+                <a
                   key={cat.itemId}
+                  href={cat.href}
                   className="flex-shrink-0 snap-start group"
                   style={getCircularItemStyle()}
                   onClick={(e) => { if (isCircularDragging) {e.preventDefault();} }}
@@ -667,7 +675,7 @@ export const ProductCategoriesPreview = ({
                       </span>
                     </div>
                   </div>
-                </div>
+                </a>
               ))}
             </div>
 

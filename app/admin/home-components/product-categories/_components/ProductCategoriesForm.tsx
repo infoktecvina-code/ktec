@@ -2,8 +2,10 @@
 
 import React from 'react';
 import { GripVertical, Plus, Trash2 } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle, Label } from '../../../components/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from '../../../components/ui';
 import { CategoryImageSelector } from '../../../components/CategoryImageSelector';
+import { ProductLinkCombobox } from './ProductLinkCombobox';
+import { getDefaultCategoryLink, isCustomProductCategoryLink, resolveProductCategoryHref } from '../_lib/links';
 import type { CategoryConfigItem } from '../_types';
 
 export const ProductCategoriesForm = ({
@@ -16,6 +18,7 @@ export const ProductCategoriesForm = ({
   productCategoriesShowCount,
   setProductCategoriesShowCount,
   productCategoriesData,
+  productsData,
   brandColor,
 }: {
   productCategoriesItems: CategoryConfigItem[];
@@ -26,7 +29,8 @@ export const ProductCategoriesForm = ({
   setProductCategoriesColsMobile: (value: number) => void;
   productCategoriesShowCount: boolean;
   setProductCategoriesShowCount: (value: boolean) => void;
-  productCategoriesData: { _id: string; name: string; image?: string }[];
+  productCategoriesData: { _id: string; name: string; slug?: string; image?: string }[];
+  productsData: { _id: string; name: string; slug: string }[];
   brandColor: string;
 }) => {
   const categoryIdCounts = productCategoriesItems.reduce<Record<string, number>>((acc, item) => {
@@ -49,6 +53,9 @@ export const ProductCategoriesForm = ({
       return true;
     });
     setProductCategoriesItems(deduped);
+  };
+  const updateItem = (itemId: number, updates: Partial<CategoryConfigItem>) => {
+    setProductCategoriesItems(productCategoriesItems.map((c) => c.id === itemId ? { ...c, ...updates } : c));
   };
 
   return (
@@ -164,7 +171,19 @@ export const ProductCategoriesForm = ({
                   <Label className="text-xs text-slate-500">Danh mục</Label>
                   <select
                     value={item.categoryId}
-                    onChange={(e) =>{  setProductCategoriesItems(productCategoriesItems.map(c => c.id === item.id ? {...c, categoryId: e.target.value} : c)); }}
+                    onChange={(e) => {
+                      const category = productCategoriesData.find((cat) => cat._id === e.target.value);
+                      updateItem(item.id, {
+                        categoryId: e.target.value,
+                        ...(item.linkMode === 'custom' && item.customLinkType === 'external'
+                          ? {}
+                          : {
+                              customLinkValue: item.linkMode === 'custom' && category?.slug
+                                ? getDefaultCategoryLink(category.slug)
+                                : item.customLinkValue,
+                            }),
+                      });
+                    }}
                     className={`w-full h-9 rounded-md border bg-white dark:bg-slate-900 px-3 text-sm ${duplicateCategoryIds.has(item.categoryId) ? 'border-amber-400' : 'border-slate-200 dark:border-slate-700'}`}
                   >
                     <option value="">-- Chọn danh mục --</option>
@@ -178,15 +197,115 @@ export const ProductCategoriesForm = ({
                 </div>
                 
                 {item.categoryId && (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-slate-500">Hình ảnh hiển thị</Label>
-                    <CategoryImageSelector
-                      value={item.customImage || ''}
-                      onChange={(value, mode) =>{  setProductCategoriesItems(productCategoriesItems.map(c => c.id === item.id ? {...c, customImage: value, imageMode: mode} : c)); }}
-                      categoryId={item.categoryId}
-                      categoryImage={productCategoriesData?.find(cat => cat._id === item.categoryId)?.image}
-                      brandColor={brandColor}
-                    />
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-slate-500">Hình ảnh hiển thị</Label>
+                      <CategoryImageSelector
+                        value={item.customImage || ''}
+                        onChange={(value, mode) =>{  updateItem(item.id, { customImage: value, imageMode: mode }); }}
+                        categoryId={item.categoryId}
+                        categoryImage={productCategoriesData?.find(cat => cat._id === item.categoryId)?.image}
+                        brandColor={brandColor}
+                      />
+                    </div>
+
+                    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-500">Custom link</Label>
+                          <p className="text-xs text-slate-500">Bật để thay link danh mục mặc định.</p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={item.linkMode === 'custom'}
+                          onChange={(e) => {
+                            const category = productCategoriesData.find((cat) => cat._id === item.categoryId);
+                            if (e.target.checked) {
+                              updateItem(item.id, {
+                                linkMode: 'custom',
+                                customLinkType: item.customLinkType ?? 'product',
+                                customLinkValue: item.customLinkValue?.trim() || (category?.slug ? getDefaultCategoryLink(category.slug) : ''),
+                              });
+                              return;
+                            }
+                            updateItem(item.id, {
+                              linkMode: 'default',
+                              customLinkType: undefined,
+                              customLinkValue: undefined,
+                              sourceProductId: undefined,
+                            });
+                          }}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={isCustomProductCategoryLink(item, productCategoriesData.find((cat) => cat._id === item.categoryId)?.slug) ? 'warning' : 'info'}>
+                          {isCustomProductCategoryLink(item, productCategoriesData.find((cat) => cat._id === item.categoryId)?.slug) ? 'Link custom' : 'Link mặc định'}
+                        </Badge>
+                        <span className={`text-xs break-all ${isCustomProductCategoryLink(item, productCategoriesData.find((cat) => cat._id === item.categoryId)?.slug) ? 'text-amber-600' : 'text-blue-600'}`}>
+                          {resolveProductCategoryHref(item, productCategoriesData.find((cat) => cat._id === item.categoryId)?.slug)}
+                        </span>
+                      </div>
+
+                      {item.linkMode === 'custom' && (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            <button
+                              type="button"
+                              className={`rounded-md border px-3 py-2 text-sm text-left ${item.customLinkType === 'product' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40' : 'border-slate-200 dark:border-slate-700'}`}
+                              onClick={() => updateItem(item.id, {
+                                customLinkType: 'product',
+                                sourceProductId: item.sourceProductId,
+                                customLinkValue: item.sourceProductId
+                                  ? `/products/${productsData.find((product) => product._id === item.sourceProductId)?.slug ?? ''}`.replace(/\/$/, '')
+                                  : item.customLinkValue,
+                              })}
+                            >
+                              Combobox sản phẩm
+                            </button>
+                            <button
+                              type="button"
+                              className={`rounded-md border px-3 py-2 text-sm text-left ${item.customLinkType === 'external' ? 'border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40' : 'border-slate-200 dark:border-slate-700'}`}
+                              onClick={() => updateItem(item.id, {
+                                customLinkType: 'external',
+                                sourceProductId: undefined,
+                                customLinkValue: item.customLinkType === 'external' ? item.customLinkValue : '',
+                              })}
+                            >
+                              Link bất kỳ
+                            </button>
+                          </div>
+
+                          {item.customLinkType === 'product' ? (
+                            <div className="space-y-2">
+                              <Label className="text-xs text-slate-500">Sản phẩm đích</Label>
+                              <ProductLinkCombobox
+                                products={productsData}
+                                value={item.sourceProductId ?? ''}
+                                onChange={(productId) => {
+                                  const product = productsData.find((entry) => entry._id === productId);
+                                  updateItem(item.id, {
+                                    sourceProductId: productId,
+                                    customLinkValue: product ? `/products/${product.slug}` : '',
+                                  });
+                                }}
+                                placeholder="-- Chọn sản phẩm --"
+                              />
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <Label className="text-xs text-slate-500">URL tùy chỉnh</Label>
+                              <Input
+                                value={item.customLinkValue ?? ''}
+                                onChange={(e) => updateItem(item.id, { customLinkValue: e.target.value })}
+                                placeholder="https://... hoặc /duong-dan"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
