@@ -5,8 +5,16 @@ import { DynamicFooter } from '@/components/site/DynamicFooter';
 import { Header, type HeaderInitialData } from '@/components/site/Header';
 import { CartDrawer } from '@/components/site/CartDrawer';
 import { SiteProviders } from '@/components/site/SiteProviders';
+import { GlobalSpeedDial } from '@/components/site/GlobalSpeedDial';
+import { OfflineDinoOverlay } from '@/components/site/OfflineDinoOverlay';
 
-export function SiteShell({ children, initialHeaderData }: { children: React.ReactNode; initialHeaderData?: HeaderInitialData }) {
+export function SiteShell({
+  children,
+  initialHeaderData,
+}: {
+  children: React.ReactNode;
+  initialHeaderData?: HeaderInitialData;
+}) {
   return (
     <SiteProviders>
       <div className="min-h-screen flex flex-col">
@@ -16,6 +24,8 @@ export function SiteShell({ children, initialHeaderData }: { children: React.Rea
           {children}
         </main>
         <DynamicFooter />
+        <GlobalSpeedDial />
+        <OfflineDinoOverlay initialSite={initialHeaderData?.site} />
       </div>
     </SiteProviders>
   );

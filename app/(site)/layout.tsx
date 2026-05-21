@@ -2,11 +2,13 @@ import { JsonLd, generateNavigationSchema } from '@/components/seo/JsonLd';
 import { SiteShell } from '@/components/site/SiteShell';
 import { api } from '@/convex/_generated/api';
 import { getConvexClient } from '@/lib/convex';
-import { getPublicSettings } from '@/lib/get-settings';
+import { getContactSettings, getSEOSettings, getSiteSettings, getSocialSettings } from '@/lib/get-settings';
 import { buildSeoMetadata } from '@/lib/seo/metadata';
 import { buildSiteSchemas } from '@/lib/seo/schema-policy';
-import { SpeedInsights } from '@vercel/speed-insights/next';
+import { TelemetryGate } from '@/components/telemetry/TelemetryGate';
 import type { Metadata } from 'next';
+
+export const revalidate = 1800; // 30 minutes — on-demand revalidation via seo-revalidate action
 
 const resolveUrl = (url: string, baseUrl: string): string => {
   if (!url) {
@@ -19,7 +21,12 @@ const resolveUrl = (url: string, baseUrl: string): string => {
 };
 
 export const generateMetadata = (): Promise<Metadata> => {
-  return getPublicSettings().then(({ site, seo, contact, social }) => {
+  return Promise.all([
+    getSiteSettings(),
+    getSEOSettings(),
+    getContactSettings(),
+    getSocialSettings(),
+  ]).then(([site, seo, contact, social]) => {
     return {
       ...buildSeoMetadata({
         contact,
@@ -47,13 +54,22 @@ const SiteLayout = ({
 }): Promise<React.ReactElement> => {
   const client = getConvexClient();
   return Promise.all([
-    getPublicSettings(),
+    getSiteSettings(),
+    getSEOSettings(),
+    getContactSettings(),
+    getSocialSettings(),
     client.query(api.menus.getMenuByLocation, { location: 'header' }),
     client.query(api.settings.getMultiple, {
       keys: ['header_style', 'header_config'],
     }),
-  ]).then(async ([publicSettings, headerMenu, headerSettings]) => {
-    const { site, seo, contact, social } = publicSettings;
+  ]).then(async ([
+    site,
+    seo,
+    contact,
+    social,
+    headerMenu,
+    headerSettings,
+  ]) => {
     const baseUrl = (site.site_url || process.env.NEXT_PUBLIC_SITE_URL) ?? '';
     const headerItems = headerMenu
       ? await client.query(api.menus.listActiveMenuItems, { menuId: headerMenu._id })
@@ -93,7 +109,7 @@ const SiteLayout = ({
           ))}
           {headerItems.length > 0 && <JsonLd data={navigationSchema} />}
           {children}
-          <SpeedInsights />
+          <TelemetryGate includeSpeedInsights />
         </SiteShell>
       </div>
     );

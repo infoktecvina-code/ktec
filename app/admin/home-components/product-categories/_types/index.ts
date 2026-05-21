@@ -1,19 +1,24 @@
 'use client';
 
-export type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'minimal' | 'marquee' | 'circular';
+import {
+  DEFAULT_SECTION_SPACING,
+  getSectionSpacingClassName,
+  normalizeSectionSpacing,
+  type SectionSpacing,
+} from '../../_shared/types/sectionSpacing';
+import type { HomeComponentCornerRadius } from '../../_shared/components/HomeComponentDisplaySettingsSection';
+
+export type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'marquee' | 'circular' | 'icon-grid' | 'mosaic' | 'compact-grid' | 'image-strip';
 export type ProductCategoriesBrandMode = 'single' | 'dual';
-export type ProductCategoryLinkMode = 'default' | 'custom';
-export type ProductCategoryCustomLinkType = 'product' | 'external';
+export type ProductCategoriesAlign = 'left' | 'center' | 'right';
+export type ProductCategoriesSpacing = SectionSpacing;
+export type ProductCategoriesCornerRadius = HomeComponentCornerRadius;
 
 export interface CategoryConfigItem {
   id: number;
   categoryId: string;
   customImage?: string;
   imageMode?: 'product-image' | 'default' | 'icon' | 'upload' | 'url';
-  linkMode?: ProductCategoryLinkMode;
-  customLinkType?: ProductCategoryCustomLinkType;
-  customLinkValue?: string;
-  sourceProductId?: string;
 }
 
 export interface CategoryData {
@@ -24,10 +29,88 @@ export interface CategoryData {
   description?: string;
 }
 
+export interface ProductCategoriesResolvedItem {
+  id: string;
+  itemId: number | string;
+  name: string;
+  slug?: string;
+  description?: string;
+  displayImage?: string;
+  displayIcon?: string;
+  productCount: number;
+}
+
+export type ProductCategoriesSelectionMode = 'real' | 'demo';
+
+export interface DemoProductCategoryItem {
+  id: string;
+  name: string;
+  image?: string;
+  description?: string;
+  productCount?: number;
+}
+
 export interface ProductCategoriesConfig {
   categories: CategoryConfigItem[];
   style: ProductCategoriesStyle;
   showProductCount: boolean;
-  columnsDesktop: number;
-  columnsMobile: number;
+  hideHeader?: boolean;
+  showTitle?: boolean;
+  subtitle?: string;
+  showSubtitle?: boolean;
+  headerAlign?: ProductCategoriesAlign;
+  titleColorPrimary?: boolean;
+  subtitleAboveTitle?: boolean;
+  uppercaseText?: boolean;
+  showBadge?: boolean;
+  badgeText?: string;
+  subheading?: string;
+  align?: ProductCategoriesAlign;
+  selectionMode?: ProductCategoriesSelectionMode;
+  demoCategories?: DemoProductCategoryItem[];
+  spacing?: ProductCategoriesSpacing;
+  cornerRadius?: ProductCategoriesCornerRadius;
+  noBorderRadius?: boolean;
+  noVerticalMargin?: boolean;
 }
+
+export const DEFAULT_PRODUCT_CATEGORIES_SPACING: ProductCategoriesSpacing = DEFAULT_SECTION_SPACING;
+export const normalizeProductCategoriesSpacing = (
+  value: unknown,
+  legacyNoVerticalMargin?: unknown,
+): ProductCategoriesSpacing => {
+  if (legacyNoVerticalMargin === true && value === undefined) {
+    return 'none';
+  }
+
+  return normalizeSectionSpacing(value);
+};
+export const getProductCategoriesSectionSpacingClassName = getSectionSpacingClassName;
+export const DEFAULT_PRODUCT_CATEGORIES_CORNER_RADIUS: ProductCategoriesCornerRadius = 'lg';
+
+export const normalizeProductCategoriesCornerRadius = (
+  value: unknown,
+  legacyNoBorderRadius?: unknown,
+): ProductCategoriesCornerRadius => {
+  if (value === 'none' || value === 'sm' || value === 'lg') {
+    return value;
+  }
+
+  return legacyNoBorderRadius === true ? 'none' : DEFAULT_PRODUCT_CATEGORIES_CORNER_RADIUS;
+};
+
+export const getProductCategoriesCardCornerRadiusClassName = (value: ProductCategoriesCornerRadius) => {
+  if (value === 'none') {
+    return 'rounded-none';
+  }
+
+  return value === 'sm' ? 'rounded-lg' : 'rounded-2xl';
+};
+
+export const getProductCategoriesInnerCornerRadiusClassName = (value: ProductCategoriesCornerRadius) => {
+  if (value === 'none') {
+    return 'rounded-none';
+  }
+
+  return value === 'sm' ? 'rounded-md' : 'rounded-xl';
+};

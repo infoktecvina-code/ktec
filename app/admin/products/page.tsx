@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-import { ChevronDown, Download, Edit, ExternalLink, Layers, Loader2, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Copy, Download, Edit, ExternalLink, Layers, Loader2, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge, Button, Card, Input, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui';
 import { BulkActionBar, ColumnToggle, generatePaginationItems, SelectCheckbox, SortableHeader, useSortableData } from '../components/TableUtilities';
@@ -50,7 +50,10 @@ function ProductsContent() {
   const productStats = useQuery(api.products.getStats);
   
   const deleteProduct = useMutation(api.products.remove);
+  const duplicateProduct = useMutation(api.products.duplicate);
   const bulkRemove = useMutation(api.products.bulkRemove);
+  const bulkUpdateStatus = useMutation(api.products.bulkUpdateStatus);
+  const bulkClearBrokenMedia = useMutation(api.products.bulkClearBrokenMedia);
   const importProducts = useMutation(api.products.importFromExcelRows);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -76,6 +79,9 @@ function ProductsContent() {
   const [manualSelectedIds, setManualSelectedIds] = useState<Id<"products">[]>([]);
   const [selectionMode, setSelectionMode] = useState<'manual' | 'all'>('manual');
   const [currentPage, setCurrentPage] = useState(1);
+  const [cloningProductId, setCloningProductId] = useState<Id<"products"> | null>(null);
+  const [bulkStatusLoading, setBulkStatusLoading] = useState<'publish' | 'unpublish' | null>(null);
+  const [isClearingBrokenMedia, setIsClearingBrokenMedia] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<Id<"products"> | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -219,7 +225,7 @@ function ProductsContent() {
       : 'skip'
   );
 
-  const isLoading = productsData === undefined || totalCountData === undefined || categoriesData === undefined || fieldsData === undefined;
+  const isTableLoading = productsData === undefined || totalCountData === undefined || categoriesData === undefined || fieldsData === undefined;
 
   useEffect(() => {
     if (selectAllData?.hasMore) {
@@ -628,8 +634,9 @@ function ProductsContent() {
     applyManualSelection(next);
   };
 
-  const openFrontend = (slug: string) => {
-    window.open(`/products/${slug}`, '_blank');
+  const openFrontend = (slug: string, categoryId: string) => {
+    const categorySlug = categorySlugMap[categoryId];
+    window.open(categorySlug ? `/${categorySlug}/${slug}` : `/products/${slug}`, '_blank');
   };
 
   const handleDelete = async (id: Id<"products">) => {
@@ -652,6 +659,36 @@ function ProductsContent() {
     }
   };
 
+  const handleDuplicateProduct = async (id: Id<"products">) => {
+    setCloningProductId(id);
+    try {
+      const result = await duplicateProduct({ id });
+      toast.success(`Đã tạo bản sao: ${result.name}`);
+    } catch {
+      toast.error('Không thể copy sản phẩm');
+    } finally {
+      setCloningProductId(null);
+    }
+  };
+
+  const handleBulkStatusUpdate = async (mode: 'publish' | 'unpublish') => {
+    const nextStatus = mode === 'publish' ? 'Active' : 'Draft';
+    setBulkStatusLoading(mode);
+    try {
+      const result = await bulkUpdateStatus({ ids: selectedIds, status: nextStatus });
+      applyManualSelection([]);
+      if (result.updated > 0) {
+        toast.success(`Đã cập nhật ${result.updated} sản phẩm${result.skipped > 0 ? `, bỏ qua ${result.skipped} sản phẩm` : ''}`);
+      } else {
+        toast.info('Không có sản phẩm nào cần cập nhật');
+      }
+    } catch {
+      toast.error('Có lỗi khi cập nhật trạng thái');
+    } finally {
+      setBulkStatusLoading(null);
+    }
+  };
+
   // FIX #10: Add loading state for bulk delete
   const handleBulkDelete = async () => {
     if (confirm(`Xóa ${selectedIds.length} sản phẩm đã chọn? Tất cả dữ liệu liên quan sẽ bị xóa.`)) {
@@ -665,6 +702,24 @@ function ProductsContent() {
       } finally {
         setIsDeleting(false);
       }
+    }
+  };
+
+  const handleBulkClearBrokenMedia = async () => {
+    setIsClearingBrokenMedia(true);
+    try {
+      const result = await bulkClearBrokenMedia({ ids: selectedIds });
+      applyManualSelection([]);
+      const cleared = result.clearedPrimary + result.clearedGallery;
+      if (cleared > 0) {
+        toast.success(`Đã xóa ${cleared} ảnh lỗi trong ${result.updated} sản phẩm`);
+      } else {
+        toast.info('Không tìm thấy ảnh lỗi trong sản phẩm đã chọn');
+      }
+    } catch {
+      toast.error('Có lỗi khi xóa ảnh lỗi');
+    } finally {
+      setIsClearingBrokenMedia(false);
     }
   };
 
@@ -691,14 +746,6 @@ function ProductsContent() {
   const invalidPriceCount = useMemo(() =>
     paginatedData.reduce((count, product) => (getInvalidPriceContext(product) ? count + 1 : count), 0),
   [paginatedData, variantEnabled, variantPricing]);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 size={32} className="animate-spin text-orange-500" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -856,6 +903,11 @@ function ProductsContent() {
         onSelectPage={() =>{  applyManualSelection(paginatedData.map(product => product._id)); }}
         onSelectAllResults={() =>{  setSelectionMode('all'); }}
         isSelectingAllResults={isSelectingAll}
+        onPublish={() =>{  void handleBulkStatusUpdate('publish'); }}
+        onUnpublish={() =>{  void handleBulkStatusUpdate('unpublish'); }}
+        isStatusLoading={bulkStatusLoading}
+        onClearBrokenMedia={() =>{  void handleBulkClearBrokenMedia(); }}
+        isClearBrokenMediaLoading={isClearingBrokenMedia}
         onDelete={handleBulkDelete} 
         onClearSelection={() =>{  applyManualSelection([]); }} 
         isLoading={isDeleting}
@@ -909,8 +961,18 @@ function ProductsContent() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedData.map(product => (
-              <TableRow key={product._id} className={selectedIds.includes(product._id) ? 'bg-orange-500/5' : ''}>
+            {isTableLoading ? (
+              Array.from({ length: resolvedProductsPerPage }).map((_, index) => (
+                <TableRow key={`loading-${index}`}>
+                  <TableCell colSpan={tableColumnCount}>
+                    <div className="h-4 w-full rounded bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <>
+                {paginatedData.map(product => (
+                  <TableRow key={product._id} className={selectedIds.includes(product._id) ? 'bg-orange-500/5' : ''}>
                 {visibleColumns.includes('select') && <TableCell><SelectCheckbox checked={selectedIds.includes(product._id)} onChange={() =>{  toggleSelectItem(product._id); }} /></TableCell>}
                 {visibleColumns.includes('image') && (
                   <TableCell>
@@ -972,29 +1034,40 @@ function ProductsContent() {
                 {visibleColumns.includes('actions') && (
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" title="Xem trên web" onClick={() =>{  openFrontend(product.slug); }}><ExternalLink size={16}/></Button>
+                      <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" title="Xem trên web" onClick={() =>{  openFrontend(product.slug, product.categoryId); }}><ExternalLink size={16}/></Button>
                       {variantEnabled && product.hasVariants && (
                         <Link href={`/admin/products/${product._id}/variants`}>
                           <Button variant="ghost" size="icon" title="Quản lý phiên bản"><Layers size={16} /></Button>
                         </Link>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Copy sản phẩm"
+                        onClick={() =>{  void handleDuplicateProduct(product._id); }}
+                        disabled={cloningProductId === product._id}
+                      >
+                        {cloningProductId === product._id ? <Loader2 size={16} className="animate-spin" /> : <Copy size={16} />}
+                      </Button>
                       <Link href={`/admin/products/${product._id}/edit`}><Button variant="ghost" size="icon"><Edit size={16}/></Button></Link>
                       <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={ async () => handleDelete(product._id)}><Trash2 size={16}/></Button>
                     </div>
                   </TableCell>
                 )}
-              </TableRow>
-            ))}
-            {paginatedData.length === 0 && (
+                  </TableRow>
+                ))}
+              </>
+            )}
+            {!isTableLoading && paginatedData.length === 0 && (
               <TableRow>
                 <TableCell colSpan={tableColumnCount} className="text-center py-8 text-slate-500">
-                {searchTerm || filterCategory || filterStatus ? 'Không tìm thấy kết quả phù hợp' : 'Chưa có sản phẩm nào.'}
+                  {searchTerm || filterCategory || filterStatus ? 'Không tìm thấy kết quả phù hợp' : 'Chưa có sản phẩm nào.'}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
-        {totalCount > 0 && !isLoading && (
+        {totalCount > 0 && !isTableLoading && (
           <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="order-2 flex w-full items-center justify-between text-sm text-slate-500 sm:order-1 sm:w-auto sm:justify-start sm:gap-6">
               <div className="flex items-center gap-2">

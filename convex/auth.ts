@@ -1,9 +1,10 @@
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { updateUserStats } from "./users";
 import { hashPassword, verifyPassword } from "./lib/password";
+import { consumeRateLimit, resetRateLimit } from "./lib/rateLimit";
 
 async function resolveSuperAdminRole(ctx: MutationCtx) {
   let superAdminRole = await ctx.db
@@ -44,6 +45,76 @@ async function resolveAdminRoleId(ctx: MutationCtx) {
   return fallbackRole._id;
 }
 
+type TrialDurationDays = 1 | 7 | 30 | 90;
+const trialDurationValidator = v.union(v.literal(1), v.literal(7), v.literal(30), v.literal(90));
+
+function resolveTrialMetadata(trialDurationDays?: TrialDurationDays) {
+  if (!trialDurationDays) {
+    return {
+      superAdminTrialCreatedAt: undefined,
+      superAdminTrialDurationDays: undefined,
+      superAdminTrialExpiresAt: undefined,
+    };
+  }
+
+  const now = Date.now();
+  return {
+    superAdminTrialCreatedAt: now,
+    superAdminTrialDurationDays: trialDurationDays,
+    superAdminTrialExpiresAt: now + trialDurationDays * 24 * 60 * 60 * 1000,
+  };
+}
+
+function isTrialExpired(user: Pick<Doc<"users">, "superAdminTrialExpiresAt">) {
+  return typeof user.superAdminTrialExpiresAt === "number" && user.superAdminTrialExpiresAt <= Date.now();
+}
+
+async function deleteUserSessions(ctx: MutationCtx, userId: Id<"users">) {
+  const sessions = await ctx.db
+    .query("userSessions")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+
+  await Promise.all(sessions.map((session) => ctx.db.delete(session._id)));
+}
+
+async function cleanupExpiredTrialUser(ctx: MutationCtx, userId: Id<"users">) {
+  const user = await ctx.db.get(userId);
+  if (!user) {
+    return false;
+  }
+
+  const role = await ctx.db.get(user.roleId);
+  if (!role?.isSuperAdmin || !isTrialExpired(user)) {
+    return false;
+  }
+
+  await deleteUserSessions(ctx, user._id);
+  await ctx.db.delete(user._id);
+  await Promise.all([
+    updateUserStats(ctx, "total", -1),
+    updateUserStats(ctx, user.status, -1),
+  ]);
+
+  return true;
+}
+
+function buildTrialStatus(user: Pick<Doc<"users">, "superAdminTrialCreatedAt" | "superAdminTrialDurationDays" | "superAdminTrialExpiresAt">) {
+  const expiresAt = user.superAdminTrialExpiresAt;
+  if (typeof expiresAt !== "number") {
+    return null;
+  }
+
+  const remainingMs = Math.max(expiresAt - Date.now(), 0);
+  return {
+    createdAt: user.superAdminTrialCreatedAt ?? null,
+    durationDays: user.superAdminTrialDurationDays ?? null,
+    expiresAt,
+    isExpired: remainingMs <= 0,
+    remainingMs,
+  };
+}
+
 // ============================================================
 // SYSTEM AUTH - Hardcoded single account for /system
 // ============================================================
@@ -51,12 +122,22 @@ async function resolveAdminRoleId(ctx: MutationCtx) {
 const SYSTEM_EMAIL = process.env.SYSTEM_EMAIL;
 const SYSTEM_PASSWORD = process.env.SYSTEM_PASSWORD;
 
+function normalizeLoginKey(email: string) {
+  return email.trim().toLowerCase();
+}
+
 export const verifySystemLogin = mutation({
   args: {
     email: v.string(),
     password: v.string(),
   },
   handler: async (ctx, args) => {
+    const loginKey = `system:${normalizeLoginKey(args.email)}`;
+    const rateLimit = await consumeRateLimit(ctx, loginKey, "auth");
+    if (!rateLimit.allowed) {
+      return { message: "Bạn thử đăng nhập quá nhanh. Vui lòng thử lại sau.", success: false };
+    }
+
     if (!SYSTEM_EMAIL || !SYSTEM_PASSWORD) {
       return { message: "Chưa cấu hình tài khoản hệ thống", success: false };
     }
@@ -78,6 +159,8 @@ export const verifySystemLogin = mutation({
       expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       token, // 24 hours
     });
+
+    await resetRateLimit(ctx, loginKey, "auth");
     
     return { message: "Đăng nhập thành công", success: true, token };
   },
@@ -142,7 +225,12 @@ export const verifyAdminLogin = mutation({
     password: v.string(),
   },
   handler: async (ctx, args) => {
-    // Find admin user by email
+    const loginKey = `admin:${normalizeLoginKey(args.email)}`;
+    const rateLimit = await consumeRateLimit(ctx, loginKey, "auth");
+    if (!rateLimit.allowed) {
+      return { message: "Bạn thử đăng nhập quá nhanh. Vui lòng thử lại sau.", success: false };
+    }
+
     const adminUser = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", args.email))
@@ -151,35 +239,38 @@ export const verifyAdminLogin = mutation({
     if (!adminUser || !adminUser.passwordHash) {
       return { message: "Email hoặc mật khẩu không đúng", success: false };
     }
-    
-    if (adminUser.status !== "Active") {
-      return { message: "Tài khoản đã bị vô hiệu hóa", success: false };
-    }
-    
-    const passwordValid = await verifyPassword(args.password, adminUser.passwordHash);
-    if (!passwordValid) {
-      return { message: "Email hoặc mật khẩu không đúng", success: false };
-    }
 
     const role = await ctx.db.get(adminUser.roleId);
     if (!role) {
       return { message: "Vai trò không tồn tại", success: false };
     }
-    
-    // Generate session token
+
+    if (role.isSuperAdmin && isTrialExpired(adminUser)) {
+      await cleanupExpiredTrialUser(ctx, adminUser._id);
+      return { message: "Tài khoản dùng thử đã hết hạn", success: false };
+    }
+
+    if (adminUser.status !== "Active") {
+      return { message: "Tài khoản đã bị vô hiệu hóa", success: false };
+    }
+
+    const passwordValid = await verifyPassword(args.password, adminUser.passwordHash);
+    if (!passwordValid) {
+      return { message: "Email hoặc mật khẩu không đúng", success: false };
+    }
+
     const token = `adm_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    
-    // Store session
+
     await ctx.db.insert("userSessions", {
       userId: adminUser._id,
       createdAt: Date.now(),
       expiresAt: Date.now() + 8 * 60 * 60 * 1000,
-      token, // 8 hours
+      token,
     });
-    
-    // Update last login
+
     await ctx.db.patch(adminUser._id, { lastLogin: Date.now() });
-    
+    await resetRateLimit(ctx, loginKey, "auth");
+
     return {
       message: "Đăng nhập thành công",
       success: true,
@@ -213,30 +304,35 @@ export const verifyAdminSession = query({
     if (!args.token || !args.token.startsWith("adm_")) {
       return { message: "Token không hợp lệ", valid: false };
     }
-    
+
     const session = await ctx.db
       .query("userSessions")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    
+
     if (!session) {
       return { message: "Session không tồn tại", valid: false };
     }
-    
+
     if (session.expiresAt < Date.now()) {
       return { message: "Session đã hết hạn", valid: false };
     }
-    
+
     const adminUser = await ctx.db.get(session.userId);
     if (!adminUser || adminUser.status !== "Active") {
       return { message: "Tài khoản không hợp lệ", valid: false };
     }
-    
+
     const role = await ctx.db.get(adminUser.roleId);
     if (!role) {
       return { message: "Role không tồn tại", valid: false };
     }
-    
+
+    const trialStatus = buildTrialStatus(adminUser);
+    if (role.isSuperAdmin && trialStatus?.isExpired) {
+      return { message: "Tài khoản dùng thử đã hết hạn", valid: false };
+    }
+
     return {
       message: "Session hợp lệ",
       user: {
@@ -247,6 +343,14 @@ export const verifyAdminSession = query({
         name: adminUser.name,
         permissions: role.permissions ?? {},
         roleId: adminUser.roleId,
+        trial: trialStatus
+          ? {
+              createdAt: trialStatus.createdAt,
+              durationDays: trialStatus.durationDays,
+              expiresAt: trialStatus.expiresAt,
+              remainingMs: trialStatus.remainingMs,
+            }
+          : undefined,
       },
       valid: true,
     };
@@ -261,6 +365,12 @@ export const verifyAdminSession = query({
       name: v.string(),
       permissions: v.record(v.string(), v.array(v.string())),
       roleId: v.string(),
+      trial: v.optional(v.object({
+        createdAt: v.union(v.number(), v.null()),
+        durationDays: v.union(v.union(v.literal(1), v.literal(7), v.literal(30), v.literal(90)), v.null()),
+        expiresAt: v.number(),
+        remainingMs: v.number(),
+      })),
     })),
     valid: v.boolean(),
   }),
@@ -273,13 +383,81 @@ export const logoutAdmin = mutation({
       .query("userSessions")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    
+
     if (session) {
       await ctx.db.delete(session._id);
     }
     return null;
   },
   returns: v.null(),
+});
+
+export const cleanupExpiredAdminTrialByToken = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("userSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+
+    if (!session) {
+      return { cleaned: false };
+    }
+
+    const cleaned = await cleanupExpiredTrialUser(ctx, session.userId);
+
+    if (!cleaned) {
+      await ctx.db.delete(session._id);
+    }
+
+    return { cleaned };
+  },
+  returns: v.object({ cleaned: v.boolean() }),
+});
+
+export const getMyAdminTrialStatus = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("userSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+
+    if (!session || session.expiresAt < Date.now()) {
+      return null;
+    }
+
+    const user = await ctx.db.get(session.userId);
+    if (!user || user.status !== "Active") {
+      return null;
+    }
+
+    const role = await ctx.db.get(user.roleId);
+    if (!role?.isSuperAdmin) {
+      return null;
+    }
+
+    const trialStatus = buildTrialStatus(user);
+    if (!trialStatus || trialStatus.isExpired) {
+      return null;
+    }
+
+    return {
+      createdAt: trialStatus.createdAt,
+      durationDays: trialStatus.durationDays,
+      expiresAt: trialStatus.expiresAt,
+      remainingMs: trialStatus.remainingMs,
+    };
+  },
+  returns: v.union(
+    v.object({
+      createdAt: v.union(v.number(), v.null()),
+      durationDays: v.union(trialDurationValidator, v.null()),
+      expiresAt: v.number(),
+      remainingMs: v.number(),
+    }),
+    v.null()
+  ),
 });
 
 export const changeMyPassword = mutation({
@@ -338,6 +516,12 @@ export const registerCustomer = mutation({
     phone: v.string(),
   },
   handler: async (ctx, args) => {
+    const loginKey = `customer:${normalizeLoginKey(args.email)}`;
+    const rateLimit = await consumeRateLimit(ctx, loginKey, "auth");
+    if (!rateLimit.allowed) {
+      return { message: "Bạn thử đăng ký quá nhanh. Vui lòng thử lại sau.", success: false };
+    }
+
     const existing = await ctx.db
       .query("customers")
       .withIndex("by_email", (q) => q.eq("email", args.email))
@@ -363,6 +547,8 @@ export const registerCustomer = mutation({
       expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
       token,
     });
+
+    await resetRateLimit(ctx, loginKey, "auth");
 
     return {
       customer: { email: args.email, id: customerId, name: args.name, phone: args.phone },
@@ -390,6 +576,12 @@ export const verifyCustomerLogin = mutation({
     password: v.string(),
   },
   handler: async (ctx, args) => {
+    const loginKey = `customer:${normalizeLoginKey(args.email)}`;
+    const rateLimit = await consumeRateLimit(ctx, loginKey, "auth");
+    if (!rateLimit.allowed) {
+      return { message: "Bạn thử đăng nhập quá nhanh. Vui lòng thử lại sau.", success: false };
+    }
+
     const customer = await ctx.db
       .query("customers")
       .withIndex("by_email", (q) => q.eq("email", args.email))
@@ -413,6 +605,8 @@ export const verifyCustomerLogin = mutation({
       expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
       token,
     });
+
+    await resetRateLimit(ctx, loginKey, "auth");
 
     return {
       customer: { email: customer.email, id: customer._id, name: customer.name, phone: customer.phone },
@@ -507,16 +701,15 @@ export const createSuperAdmin = mutation({
     email: v.string(),
     name: v.optional(v.string()),
     password: v.string(),
+    trialDurationDays: v.optional(trialDurationValidator),
   },
   handler: async (ctx, args) => {
-    // Get or create SuperAdmin role
     const superAdminRole = await resolveSuperAdminRole(ctx);
 
     if (!superAdminRole) {
       return { message: "Không thể tạo vai trò SuperAdmin", success: false };
     }
 
-    // Check if SuperAdmin already exists
     const existingSuperAdmin = await ctx.db
       .query("users")
       .withIndex("by_role_status", (q) => q.eq("roleId", superAdminRole!._id))
@@ -526,7 +719,6 @@ export const createSuperAdmin = mutation({
       return { message: "SuperAdmin đã tồn tại", success: false };
     }
 
-    // Check email unique
     const email = args.email;
     const password = args.password;
 
@@ -540,19 +732,20 @@ export const createSuperAdmin = mutation({
     }
 
     const passwordHash = await hashPassword(password);
+    const trialMetadata = resolveTrialMetadata(args.trialDurationDays);
 
-    // Create SuperAdmin user
     await ctx.db.insert("users", {
       email,
       name: args.name ?? "Super Admin",
       passwordHash,
       roleId: superAdminRole._id,
       status: "Active",
+      ...trialMetadata,
     });
 
     await updateUserStats(ctx, "total", 1);
     await updateUserStats(ctx, "Active", 1);
-    
+
     return { message: "Đã tạo SuperAdmin thành công", success: true };
   },
   returns: v.object({
@@ -584,6 +777,7 @@ export const getSuperAdmin = query({
       id: superAdmin._id,
       name: superAdmin.name,
       status: superAdmin.status,
+      trialExpiresAt: superAdmin.superAdminTrialExpiresAt,
     };
   },
   returns: v.union(
@@ -593,6 +787,7 @@ export const getSuperAdmin = query({
       id: v.string(),
       name: v.string(),
       status: v.string(),
+      trialExpiresAt: v.optional(v.number()),
     }),
     v.null()
   ),
@@ -627,6 +822,8 @@ export const listSuperAdmins = query({
         id: user._id,
         name: user.name,
         status: user.status,
+        trialDurationDays: user.superAdminTrialDurationDays,
+        trialExpiresAt: user.superAdminTrialExpiresAt,
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
   },
@@ -637,8 +834,42 @@ export const listSuperAdmins = query({
       id: v.id("users"),
       name: v.string(),
       status: v.string(),
+      trialDurationDays: v.optional(trialDurationValidator),
+      trialExpiresAt: v.optional(v.number()),
     })
   ),
+});
+
+export const cleanupExpiredSuperAdminTrials = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const roles = await ctx.db
+      .query("roles")
+      .filter((q) => q.eq(q.field("isSuperAdmin"), true))
+      .collect();
+
+    if (roles.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    let deletedCount = 0;
+    for (const role of roles) {
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_role_status", (q) => q.eq("roleId", role._id))
+        .collect();
+
+      for (const user of users) {
+        const cleaned = await cleanupExpiredTrialUser(ctx, user._id);
+        if (cleaned) {
+          deletedCount += 1;
+        }
+      }
+    }
+
+    return { deletedCount };
+  },
+  returns: v.object({ deletedCount: v.number() }),
 });
 
 export const listAdminUsersForSystem = query({
@@ -691,12 +922,15 @@ export const addSuperAdmin = mutation({
     existingUserId: v.optional(v.id("users")),
     name: v.optional(v.string()),
     password: v.optional(v.string()),
+    trialDurationDays: v.optional(trialDurationValidator),
   },
   handler: async (ctx, args) => {
     const superAdminRole = await resolveSuperAdminRole(ctx);
     if (!superAdminRole) {
       return { message: "Không thể tạo vai trò SuperAdmin", success: false };
     }
+
+    const trialMetadata = resolveTrialMetadata(args.trialDurationDays);
 
     if (args.existingUserId) {
       const targetUser = await ctx.db.get(args.existingUserId);
@@ -707,7 +941,10 @@ export const addSuperAdmin = mutation({
       if (targetRole?.isSuperAdmin) {
         return { message: "Người dùng đã là Super Admin", success: false };
       }
-      await ctx.db.patch(targetUser._id, { roleId: superAdminRole._id });
+      await ctx.db.patch(targetUser._id, {
+        roleId: superAdminRole._id,
+        ...trialMetadata,
+      });
       return { message: "Đã nâng quyền Super Admin", success: true };
     }
 
@@ -739,6 +976,7 @@ export const addSuperAdmin = mutation({
       passwordHash,
       roleId: superAdminRole._id,
       status: "Active",
+      ...trialMetadata,
     });
 
     await Promise.all([
@@ -788,7 +1026,12 @@ export const demoteSuperAdmin = mutation({
     }
 
     const adminRoleId = await resolveAdminRoleId(ctx);
-    await ctx.db.patch(targetUser._id, { roleId: adminRoleId });
+    await ctx.db.patch(targetUser._id, {
+      roleId: adminRoleId,
+      superAdminTrialCreatedAt: undefined,
+      superAdminTrialDurationDays: undefined,
+      superAdminTrialExpiresAt: undefined,
+    });
 
     return { message: "Đã gỡ quyền Super Admin", success: true };
   },
@@ -929,6 +1172,9 @@ export const ensureSuperAdminCredentials = mutation({
         passwordHash,
         roleId: superAdminRole._id,
         status: "Active",
+        superAdminTrialCreatedAt: undefined,
+        superAdminTrialDurationDays: undefined,
+        superAdminTrialExpiresAt: undefined,
       });
 
       if (existingSuperAdmin && existingSuperAdmin._id !== existingByEmail._id && adminRole) {
@@ -950,6 +1196,9 @@ export const ensureSuperAdminCredentials = mutation({
       }
 
       updates.passwordHash = passwordHash;
+      updates.superAdminTrialCreatedAt = undefined;
+      updates.superAdminTrialDurationDays = undefined;
+      updates.superAdminTrialExpiresAt = undefined;
 
       if (Object.keys(updates).length > 0) {
         await ctx.db.patch(existingSuperAdmin._id, updates);

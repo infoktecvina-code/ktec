@@ -1,11 +1,19 @@
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { contentStatus } from "./lib/validators";
 import { rankByFuzzyMatches } from "./lib/search";
+import { countPublishedServices, recordServiceAggregates } from "./lib/aggregates/publicContent";
+import { requireAdminPermission } from "./lib/permissions";
 import * as ServicesModel from "./model/services";
 import type { Doc } from "./_generated/dataModel";
+import {
+  isBrokenStorageBackedUrl,
+  removeOwnerFilesAndCleanup,
+  syncOwnerFilesAndCleanup,
+} from "./lib/fileService";
 
 const serviceDoc = v.object({
   _creationTime: v.number(),
@@ -20,6 +28,12 @@ const serviceDoc = v.object({
   markdownRender: v.optional(v.string()),
   htmlRender: v.optional(v.string()),
   duration: v.optional(v.string()),
+  bookingEnabled: v.optional(v.boolean()),
+  bookingDurationMin: v.optional(v.number()),
+  bookingSlotIntervalMin: v.optional(v.number()),
+  bookingCapacityPerSlot: v.optional(v.number()),
+  bookingSlotTemplateDefault: v.optional(v.array(v.string())),
+  bookingSlotTemplateByWeekday: v.optional(v.record(v.string(), v.array(v.string()))),
   excerpt: v.optional(v.string()),
   featured: v.optional(v.boolean()),
   metaDescription: v.optional(v.string()),
@@ -34,6 +48,29 @@ const serviceDoc = v.object({
   title: v.string(),
   views: v.number(),
 });
+
+const SERVICES_AGGREGATES_READY_KEY = "servicesPublishedAggregatesReady";
+const SERVICES_AGGREGATES_BACKFILLED_AT_KEY = "servicesPublishedAggregatesBackfilledAt";
+
+async function isServicesAggregateReady(ctx: QueryCtx) {
+  const setting = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", SERVICES_AGGREGATES_READY_KEY))
+    .unique();
+  return setting?.value === true;
+}
+
+async function upsertServicesAggregateSetting(ctx: MutationCtx, key: string, value: unknown) {
+  const existing = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { group: "contentAggregates", value });
+    return;
+  }
+  await ctx.db.insert("settings", { group: "contentAggregates", key, value });
+}
 
 const paginatedServices = v.object({
   continueCursor: v.string(),
@@ -509,6 +546,9 @@ export const searchPublished = query({
 export const countPublished = query({
   args: { categoryId: v.optional(v.id("serviceCategories")) },
   handler: async (ctx, args) => {
+    if (await isServicesAggregateReady(ctx)) {
+      return countPublishedServices(ctx, { categoryId: args.categoryId });
+    }
     if (args.categoryId) {
       const services = await ctx.db
         .query("services")
@@ -539,6 +579,12 @@ export const create = mutation({
     markdownRender: v.optional(v.string()),
     htmlRender: v.optional(v.string()),
     duration: v.optional(v.string()),
+    bookingEnabled: v.optional(v.boolean()),
+    bookingDurationMin: v.optional(v.number()),
+    bookingSlotIntervalMin: v.optional(v.number()),
+    bookingCapacityPerSlot: v.optional(v.number()),
+    bookingSlotTemplateDefault: v.optional(v.array(v.string())),
+    bookingSlotTemplateByWeekday: v.optional(v.record(v.string(), v.array(v.string()))),
     excerpt: v.optional(v.string()),
     featured: v.optional(v.boolean()),
     metaDescription: v.optional(v.string()),
@@ -553,6 +599,14 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const id = await ServicesModel.create(ctx, args);
+    if (args.thumbnailStorageId) {
+      await syncOwnerFilesAndCleanup(ctx, {
+        ownerField: "thumbnail",
+        ownerId: id,
+        ownerTable: "services",
+        purpose: "service-thumbnail",
+      }, [args.thumbnailStorageId]);
+    }
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "service" });
     return id;
   },
@@ -571,6 +625,12 @@ export const update = mutation({
     markdownRender: v.optional(v.string()),
     htmlRender: v.optional(v.string()),
     duration: v.optional(v.string()),
+    bookingEnabled: v.optional(v.boolean()),
+    bookingDurationMin: v.optional(v.number()),
+    bookingSlotIntervalMin: v.optional(v.number()),
+    bookingCapacityPerSlot: v.optional(v.number()),
+    bookingSlotTemplateDefault: v.optional(v.array(v.string())),
+    bookingSlotTemplateByWeekday: v.optional(v.record(v.string(), v.array(v.string()))),
     excerpt: v.optional(v.string()),
     featured: v.optional(v.boolean()),
     id: v.id("services"),
@@ -586,22 +646,77 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const previous = await ctx.db.get(args.id);
-    await ServicesModel.update(ctx, args);
+    const nextArgs = { ...args };
+    if (
+      Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId")
+      && args.thumbnailStorageId === null
+      && !Object.prototype.hasOwnProperty.call(args, "thumbnail")
+    ) {
+      nextArgs.thumbnail = "";
+    }
+    await ServicesModel.update(ctx, nextArgs);
     const shouldCheckStorage = Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId");
-    if (shouldCheckStorage && previous?.thumbnailStorageId) {
+    if (shouldCheckStorage && previous) {
       const nextThumbnailStorageId = Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId")
         ? args.thumbnailStorageId ?? null
         : previous.thumbnailStorageId ?? null;
-      if (!nextThumbnailStorageId || nextThumbnailStorageId !== previous.thumbnailStorageId) {
-        await ctx.runMutation(api.storage.cleanupStorageIfUnreferenced, {
-          storageId: previous.thumbnailStorageId,
-        });
-      }
+      await syncOwnerFilesAndCleanup(ctx, {
+        ownerField: "thumbnail",
+        ownerId: args.id,
+        ownerTable: "services",
+        purpose: "service-thumbnail",
+      }, [nextThumbnailStorageId], {
+        previousStorageIds: [previous.thumbnailStorageId],
+      });
     }
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "service" });
     return null;
   },
   returns: v.null(),
+});
+
+export const bulkClearBrokenMedia = mutation({
+  args: { ids: v.array(v.id("services")) },
+  handler: async (ctx, args) => {
+    let checked = 0;
+    let updated = 0;
+    let cleared = 0;
+    let skipped = 0;
+
+    for (const id of args.ids) {
+      const service = await ctx.db.get(id);
+      if (!service) {
+        skipped += 1;
+        continue;
+      }
+      checked += 1;
+      if (await isBrokenStorageBackedUrl(ctx, service.thumbnail, service.thumbnailStorageId)) {
+        await ctx.db.patch(id, { thumbnail: "", thumbnailStorageId: null });
+        await syncOwnerFilesAndCleanup(ctx, {
+          ownerField: "thumbnail",
+          ownerId: id,
+          ownerTable: "services",
+          purpose: "service-thumbnail",
+        }, [], {
+          previousStorageIds: [service.thumbnailStorageId],
+        });
+        updated += 1;
+        cleared += 1;
+      }
+    }
+
+    if (updated > 0) {
+      await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "service" });
+    }
+
+    return { checked, cleared, skipped, updated };
+  },
+  returns: v.object({
+    checked: v.number(),
+    cleared: v.number(),
+    skipped: v.number(),
+    updated: v.number(),
+  }),
 });
 
 export const incrementViews = mutation({
@@ -616,7 +731,14 @@ export const incrementViews = mutation({
 export const remove = mutation({
   args: { cascade: v.optional(v.boolean()), id: v.id("services") },
   handler: async (ctx, args) => {
+    const service = await ctx.db.get(args.id);
     await ServicesModel.remove(ctx, args);
+    await removeOwnerFilesAndCleanup(ctx, {
+      ownerId: args.id,
+      ownerTable: "services",
+    }, {
+      previousStorageIds: [service?.thumbnailStorageId],
+    });
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "service" });
     return null;
   },
@@ -634,5 +756,46 @@ export const getDeleteInfo = query({
       label: v.string(),
       preview: v.array(v.object({ id: v.string(), name: v.string() })),
     })),
+  }),
+});
+
+async function backfillServiceAggregateBatch(
+  ctx: MutationCtx,
+  paginationOpts: {
+    cursor: string | null;
+    numItems: number;
+  }
+) {
+  if (paginationOpts.cursor === null) {
+    await upsertServicesAggregateSetting(ctx, SERVICES_AGGREGATES_READY_KEY, false);
+  }
+  const result = await ctx.db.query("services").paginate(paginationOpts);
+  for (const doc of result.page) {
+    await recordServiceAggregates(ctx, doc);
+  }
+  if (result.isDone) {
+    await upsertServicesAggregateSetting(ctx, SERVICES_AGGREGATES_READY_KEY, true);
+    await upsertServicesAggregateSetting(ctx, SERVICES_AGGREGATES_BACKFILLED_AT_KEY, Date.now());
+  }
+  return {
+    continueCursor: result.continueCursor,
+    isDone: result.isDone,
+    processed: result.page.length,
+  };
+}
+
+export const backfillPublishedAggregatesForAdmin = mutation({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdminPermission(ctx, args.token, "services", "edit");
+    return backfillServiceAggregateBatch(ctx, args.paginationOpts);
+  },
+  returns: v.object({
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+    processed: v.number(),
   }),
 });

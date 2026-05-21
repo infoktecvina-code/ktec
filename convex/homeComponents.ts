@@ -1,6 +1,9 @@
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 import { v } from "convex/values";
+import { removeOwnerFileReferences, syncOwnerFileReferences } from "./lib/fileService";
 
 const homeComponentDoc = v.object({
   _creationTime: v.number(),
@@ -27,6 +30,87 @@ async function updateHomeComponentStats(
   } else {
     await ctx.db.insert("homeComponentStats", { count: Math.max(0, delta), key });
   }
+}
+
+function collectConfigStorageIds(value: unknown, acc = new Set<Id<"_storage">>()): Id<"_storage">[] {
+  if (!value) {
+    return Array.from(acc);
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectConfigStorageIds(item, acc));
+    return Array.from(acc);
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.storageId === "string" && record.storageId.trim()) {
+      acc.add(record.storageId as Id<"_storage">);
+    }
+    Object.values(record).forEach(item => collectConfigStorageIds(item, acc));
+  }
+  return Array.from(acc);
+}
+
+function collectConfigUrls(value: unknown, acc = new Set<string>()): string[] {
+  if (!value) {
+    return Array.from(acc);
+  }
+  if (typeof value === "string") {
+    if (/^https?:\/\//.test(value)) {
+      acc.add(value);
+    }
+    return Array.from(acc);
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectConfigUrls(item, acc));
+    return Array.from(acc);
+  }
+  if (typeof value === "object") {
+    Object.values(value as Record<string, unknown>).forEach(item => collectConfigUrls(item, acc));
+  }
+  return Array.from(acc);
+}
+
+function resolveConfigStorageIds(config: unknown) {
+  return collectConfigStorageIds(config);
+}
+
+function sameStorageIds(
+  left: Array<Id<"_storage"> | null | undefined>,
+  right: Array<Id<"_storage"> | null | undefined>
+) {
+  const normalize = (values: Array<Id<"_storage"> | null | undefined>) =>
+    Array.from(new Set(values.filter((value): value is Id<"_storage"> => Boolean(value)))).sort();
+  const leftIds = normalize(left);
+  const rightIds = normalize(right);
+  return leftIds.length === rightIds.length && leftIds.every((value, index) => value === rightIds[index]);
+}
+
+async function syncHomeComponentFileReferences(
+  ctx: MutationCtx,
+  ownerId: Id<"homeComponents">,
+  nextConfig: unknown,
+  previousConfig?: unknown
+) {
+  const [nextStorageIds, previousStorageIds] = await Promise.all([
+    resolveConfigStorageIds(nextConfig),
+    resolveConfigStorageIds(previousConfig),
+  ]);
+  if (sameStorageIds(nextStorageIds, previousStorageIds)) {
+    return;
+  }
+
+  const { removedStorageIds } = await syncOwnerFileReferences(ctx, {
+    ownerField: "config",
+    ownerId,
+    ownerTable: "homeComponents",
+    purpose: "home-component-config",
+  }, nextStorageIds, {
+    previousStorageIds,
+  });
+
+  await Promise.all(removedStorageIds.map(storageId =>
+    ctx.runMutation(api.storage.cleanupStorageIfUnreferenced, { storageId })
+  ));
 }
 
 // CRIT-002 FIX: Thêm limit
@@ -81,6 +165,7 @@ export const create = mutation({
       active: isActive,
       order: newOrder,
     });
+    await syncHomeComponentFileReferences(ctx, id, args.config);
     
     // Update counters
     await Promise.all([
@@ -126,6 +211,9 @@ export const update = mutation({
     }
     
     await ctx.db.patch(id, updates);
+    if (Object.prototype.hasOwnProperty.call(args, "config")) {
+      await syncHomeComponentFileReferences(ctx, id, args.config, component.config);
+    }
     return null;
   },
   returns: v.null(),
@@ -137,6 +225,7 @@ export const updateConfig = mutation({
     const component = await ctx.db.get(args.id);
     if (!component) {throw new Error("Component not found");}
     await ctx.db.patch(args.id, { config: args.config });
+    await syncHomeComponentFileReferences(ctx, args.id, args.config, component.config);
     return null;
   },
   returns: v.null(),
@@ -170,7 +259,17 @@ export const remove = mutation({
     const component = await ctx.db.get(args.id);
     if (!component) {throw new Error("Component not found");}
     
+    const { removedStorageIds } = await removeOwnerFileReferences(ctx, {
+      ownerId: args.id,
+      ownerTable: "homeComponents",
+    }, {
+      previousStorageIds: resolveConfigStorageIds(component.config),
+    });
+    
     await ctx.db.delete(args.id);
+    await Promise.all(removedStorageIds.map(storageId =>
+      ctx.runMutation(api.storage.cleanupStorageIfUnreferenced, { storageId })
+    ));
     
     // Update counters
     await Promise.all([
@@ -182,6 +281,49 @@ export const remove = mutation({
     return null;
   },
   returns: v.null(),
+});
+
+export const cleanupUnreferencedConfigMedia = mutation({
+  args: {
+    batchSize: v.optional(v.number()),
+    folder: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const maxBatch = Math.min(args.batchSize ?? 100, 200);
+    const homeComponents = await ctx.db.query("homeComponents").take(1000);
+    const referencedUrls = new Set<string>();
+    const referencedStorageIds = new Set<Id<"_storage">>();
+
+    for (const component of homeComponents) {
+      collectConfigUrls(component.config).forEach(url => referencedUrls.add(url));
+      collectConfigStorageIds(component.config).forEach(storageId => referencedStorageIds.add(storageId));
+    }
+
+    const images = await ctx.db.query("images").withIndex("by_folder", q => q.eq("folder", args.folder)).take(maxBatch);
+    let deleted = 0;
+    let skipped = 0;
+
+    for (const image of images) {
+      if (referencedStorageIds.has(image.storageId)) {
+        skipped += 1;
+        continue;
+      }
+      const url = await ctx.storage.getUrl(image.storageId);
+      if (url && referencedUrls.has(url)) {
+        skipped += 1;
+        continue;
+      }
+      const result = await ctx.runMutation(api.storage.cleanupStorageIfUnreferenced, { storageId: image.storageId });
+      if (result.deleted) {
+        deleted += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+
+    return { deleted, skipped };
+  },
+  returns: v.object({ deleted: v.number(), skipped: v.number() }),
 });
 
 // TICKET #3 FIX: Dùng Promise.all thay vì sequential updates
@@ -212,6 +354,7 @@ export const duplicate = mutation({
       title: `${component.title} (Copy)`,
       type: component.type,
     });
+    await syncHomeComponentFileReferences(ctx, id, component.config);
     
     // Update counters (duplicate is always inactive)
     await Promise.all([

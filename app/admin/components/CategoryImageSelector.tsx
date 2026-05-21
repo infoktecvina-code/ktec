@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
+import { AdminImage as Image } from '@/app/admin/components/AdminImage';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
@@ -20,6 +20,9 @@ import { toast } from 'sonner';
 import { Button, Input, Label, cn } from './ui';
 import { prepareImageForUpload, validateImageFile } from '@/lib/image/uploadPipeline';
 import { resolveNamingContext } from '@/lib/image/uploadNaming';
+import { ImageEditorDialog } from './ImageEditorDialog';
+import { getProductImageAspectRatioLabel, type ImageAspectRatioInput } from '@/lib/products/image-aspect-ratio';
+import { ImageSourceActions } from './ImageSourceActions';
 
 // Available icons for categories
 const CATEGORY_ICONS = [
@@ -107,6 +110,7 @@ interface CategoryImageSelectorProps {
   categoryId?: string;
   brandColor?: string;
   className?: string;
+  cropAspectRatio?: ImageAspectRatioInput;
 }
 
 export function CategoryImageSelector({
@@ -116,6 +120,7 @@ export function CategoryImageSelector({
   categoryId,
   brandColor = '#3b82f6',
   className,
+  cropAspectRatio,
 }: CategoryImageSelectorProps) {
   // Determine current mode from value
   const initialMode = resolveImageMode(value);
@@ -127,6 +132,7 @@ export function CategoryImageSelector({
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
@@ -249,6 +255,28 @@ export function CategoryImageSelector({
     }
   }, [handleFileSelect]);
 
+  const handleClipboardPaste = useCallback(async () => {
+    if (isUploading) return;
+
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const ext = imageType.split('/')[1] || 'png';
+          const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imageType });
+          setMode('upload');
+          void handleFileSelect(file);
+          return;
+        }
+      }
+      toast.error('Clipboard không có ảnh. Hãy copy ảnh trước.');
+    } catch {
+      toast.error('Không đọc được clipboard. Hãy copy ảnh trước.');
+    }
+  }, [isUploading, handleFileSelect]);
+
   const handleRemoveUpload = () => {
     setUploadedUrl('');
     onChange('', 'default');
@@ -256,6 +284,16 @@ export function CategoryImageSelector({
   };
 
   const currentIconData = getCategoryIcon(selectedIcon);
+  const currentCropSourceUrl = mode === 'upload'
+    ? uploadedUrl
+    : mode === 'url'
+      ? urlInput || value
+      : mode === 'product-image'
+        ? selectedProduct?.image
+        : mode === 'default'
+          ? categoryImage
+          : undefined;
+  const cropRatioLabel = cropAspectRatio ? getProductImageAspectRatioLabel(cropAspectRatio) : undefined;
 
   return (
     <div className={cn('space-y-3', className)}>
@@ -322,6 +360,21 @@ export function CategoryImageSelector({
           URL
         </button>
       </div>
+
+      <ImageSourceActions
+        mode={mode === 'url' ? 'url' : 'upload'}
+        onUpload={() => {
+          setMode('upload');
+          inputRef.current?.click();
+        }}
+        onUrl={() => handleModeChange('url')}
+        onPaste={handleClipboardPaste}
+        onCrop={() => currentCropSourceUrl && setCropSourceUrl(currentCropSourceUrl)}
+        cropLabel={cropRatioLabel}
+        cropDisabled={!currentCropSourceUrl || isUploading}
+        disabled={isUploading}
+        iconSize={12}
+      />
 
       {/* Hidden file input */}
       <input
@@ -529,8 +582,21 @@ export function CategoryImageSelector({
           </Button>
         </div>
       )}
+      {cropSourceUrl && (
+        <ImageEditorDialog
+          imageUrl={cropSourceUrl}
+          preferredCropAspectRatio={cropAspectRatio}
+          onClose={() => setCropSourceUrl(null)}
+          onApply={(editedFile) => {
+            setCropSourceUrl(null);
+            setMode('upload');
+            void handleFileSelect(editedFile);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 export { CATEGORY_ICONS };
+

@@ -1,6 +1,5 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "../convex/_generated/api";
 import { getConvexClient } from "./convex";
-import { cache } from "react";
 
 export interface SiteSettings {
   site_name: string;
@@ -134,44 +133,40 @@ const normalizeSocialSettings = (settings: Record<string, unknown>): SocialSetti
   social_youtube: (settings.social_youtube as string) || "",
 });
 
-const PUBLIC_SETTINGS_KEYS = [
-  ...SETTINGS_KEYS.site,
-  ...SETTINGS_KEYS.seo,
-  ...SETTINGS_KEYS.contact,
-  ...SETTINGS_KEYS.social,
-];
+const getSettingsGroup = async (keys: string[]): Promise<Record<string, unknown>> => {
+  try {
+    const client = getConvexClient();
+    return await client.query(api.settings.getMultiple, { keys });
+  } catch {
+    return {};
+  }
+};
 
-const getSettingsByKeys = cache(async (keys: string[]) => {
-  const client = getConvexClient();
-  return client.query(api.settings.getMultiple, {
-    keys,
-  });
-});
+export const getSiteSettings =  async (): Promise<SiteSettings> => {
+  const settings = await getSettingsGroup(SETTINGS_KEYS.site);
+  return normalizeSiteSettings(settings);
+};
 
-export const getPublicSettings = cache(async (): Promise<PublicSettings> => {
-  const settings = await getSettingsByKeys(PUBLIC_SETTINGS_KEYS);
-  return {
-    contact: normalizeContactSettings(settings),
-    seo: normalizeSEOSettings(settings),
-    site: normalizeSiteSettings(settings),
-    social: normalizeSocialSettings(settings),
-  };
-});
+export const getSEOSettings =  async (): Promise<SEOSettings> => {
+  const settings = await getSettingsGroup(SETTINGS_KEYS.seo);
+  return normalizeSEOSettings(settings);
+};
 
-export const getSiteSettings = async (): Promise<SiteSettings> => (
-  getPublicSettings().then((settings) => settings.site)
-);
+export const getContactSettings =  async (): Promise<ContactSettings> => {
+  const settings = await getSettingsGroup(SETTINGS_KEYS.contact);
+  return normalizeContactSettings(settings);
+};
 
-export const getSEOSettings = async (): Promise<SEOSettings> => (
-  getPublicSettings().then((settings) => settings.seo)
-);
+export const getSocialSettings = async (): Promise<SocialSettings> => {
+  const settings = await getSettingsGroup(SETTINGS_KEYS.social);
+  return normalizeSocialSettings(settings);
+};
 
-export const getContactSettings = async (): Promise<ContactSettings> => (
-  getPublicSettings().then((settings) => settings.contact)
-);
+export const getAllPublicSettings =  async (): Promise<PublicSettings> => Promise.all([
+  getSiteSettings(),
+  getSEOSettings(),
+  getContactSettings(),
+  getSocialSettings(),
+]).then(([site, seo, contact, social]) => ({ contact, seo, site, social }));
 
-export const getSocialSettings = async (): Promise<SocialSettings> => (
-  getPublicSettings().then((settings) => settings.social)
-);
-
-export const getAllPublicSettings = async (): Promise<PublicSettings> => getPublicSettings();
+export const getPublicSettings = async (): Promise<PublicSettings> => getAllPublicSettings();

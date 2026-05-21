@@ -1,6 +1,11 @@
-import { ConvexError } from "convex/values";
+import { resolveUniqueSlug } from "../lib/iaSlugs";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import {
+  deleteServiceAggregates,
+  recordServiceAggregates,
+  replaceServiceAggregates,
+} from "../lib/aggregates/publicContent";
 
 const MAX_ITEMS_LIMIT = 100;
 
@@ -120,6 +125,12 @@ export async function create(
     categoryId: Id<"serviceCategories">;
     price?: number;
     duration?: string;
+    bookingEnabled?: boolean;
+    bookingDurationMin?: number;
+    bookingSlotIntervalMin?: number;
+    bookingCapacityPerSlot?: number;
+    bookingSlotTemplateDefault?: string[];
+    bookingSlotTemplateByWeekday?: Record<string, string[]>;
     metaTitle?: string;
     metaDescription?: string;
     status?: Doc<"services">["status"];
@@ -127,23 +138,27 @@ export async function create(
     featured?: boolean;
   }
 ): Promise<Id<"services">> {
-  if (await isSlugExists(ctx, { slug: args.slug })) {
-    throw new ConvexError({
-      code: "DUPLICATE_SLUG",
-      message: "Slug đã tồn tại, vui lòng chọn slug khác",
-    });
-  }
+  const resolvedSlug = await resolveUniqueSlug(ctx, {
+    scope: "record",
+    slug: args.slug,
+  });
 
   const order = args.order ?? (await getNextOrder(ctx));
   const status = args.status ?? "Draft";
 
-  return  ctx.db.insert("services", {
+  const id = await ctx.db.insert("services", {
     categoryId: args.categoryId,
     content: args.content,
     renderType: args.renderType ?? "content",
     markdownRender: args.markdownRender,
     htmlRender: args.htmlRender,
     duration: args.duration,
+    bookingEnabled: args.bookingEnabled,
+    bookingDurationMin: args.bookingDurationMin,
+    bookingSlotIntervalMin: args.bookingSlotIntervalMin,
+    bookingCapacityPerSlot: args.bookingCapacityPerSlot,
+    bookingSlotTemplateDefault: args.bookingSlotTemplateDefault,
+    bookingSlotTemplateByWeekday: args.bookingSlotTemplateByWeekday,
     excerpt: args.excerpt,
     featured: args.featured,
     metaDescription: args.metaDescription,
@@ -151,13 +166,18 @@ export async function create(
     order,
     price: args.price,
     publishedAt: status === "Published" ? Date.now() : undefined,
-    slug: args.slug,
+    slug: resolvedSlug.slug,
     status,
     thumbnail: args.thumbnail,
     thumbnailStorageId: args.thumbnailStorageId ?? null,
     title: args.title,
     views: 0,
   });
+  const service = await ctx.db.get(id);
+  if (service) {
+    await recordServiceAggregates(ctx, service);
+  }
+  return id;
 }
 
 export async function update(
@@ -176,6 +196,12 @@ export async function update(
     categoryId?: Id<"serviceCategories">;
     price?: number;
     duration?: string;
+    bookingEnabled?: boolean;
+    bookingDurationMin?: number;
+    bookingSlotIntervalMin?: number;
+    bookingCapacityPerSlot?: number;
+    bookingSlotTemplateDefault?: string[];
+    bookingSlotTemplateByWeekday?: Record<string, string[]>;
     metaTitle?: string;
     metaDescription?: string;
     status?: Doc<"services">["status"];
@@ -186,11 +212,13 @@ export async function update(
   const service = await getByIdOrThrow(ctx, { id: args.id });
 
   if (args.slug && args.slug !== service.slug) {
-    if (await isSlugExists(ctx, { excludeId: args.id, slug: args.slug })) {
-      throw new ConvexError({
-        code: "DUPLICATE_SLUG",
-        message: "Slug đã tồn tại, vui lòng chọn slug khác",
-      });
+    const resolvedSlug = await resolveUniqueSlug(ctx, {
+      scope: "record",
+      slug: args.slug,
+      exclude: { id: args.id, table: "services" },
+    });
+    if (resolvedSlug.slug !== args.slug) {
+      (args as { slug?: string }).slug = resolvedSlug.slug;
     }
   }
 
@@ -202,6 +230,10 @@ export async function update(
   }
 
   await ctx.db.patch(id, patchData);
+  const updatedService = await ctx.db.get(id);
+  if (updatedService) {
+    await replaceServiceAggregates(ctx, service, updatedService);
+  }
 }
 
 /**
@@ -211,6 +243,7 @@ export async function remove(
   ctx: MutationCtx,
   { cascade, id }: { cascade?: boolean; id: Id<"services"> }
 ): Promise<void> {
+  const service = await getByIdOrThrow(ctx, { id });
   const preview = await ctx.db
     .query("comments")
     .withIndex("by_target_status", (q) =>
@@ -233,6 +266,7 @@ export async function remove(
   }
 
   await ctx.db.delete(id);
+  await deleteServiceAggregates(ctx, service);
 }
 
 export async function getDeleteInfo(

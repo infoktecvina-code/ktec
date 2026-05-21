@@ -48,6 +48,8 @@ function PostsContent() {
   const [deleteTargetId, setDeleteTargetId] = useState<Id<"posts"> | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
+  const [bulkStatusLoading, setBulkStatusLoading] = useState<'publish' | 'unpublish' | null>(null);
+  const [isClearingBrokenMedia, setIsClearingBrokenMedia] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<string[]>(() => {
     if (typeof window === 'undefined') {
       return ['status', 'views'];
@@ -69,6 +71,8 @@ function PostsContent() {
   const fieldsData = useQuery(api.admin.modules.listEnabledModuleFields, { moduleKey: 'posts' });
   const settingsData = useQuery(api.admin.modules.listModuleSettings, { moduleKey: 'posts' });
   const deletePost = useMutation(api.posts.remove);
+  const updatePost = useMutation(api.posts.update);
+  const bulkClearBrokenMedia = useMutation(api.posts.bulkClearBrokenMedia);
   
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ direction: 'asc', key: null });
 
@@ -145,6 +149,12 @@ function PostsContent() {
   const categoryMap = useMemo(() => {
     const map: Record<string, string> = {};
     categoriesData?.forEach(cat => { map[cat._id] = cat.name; });
+    return map;
+  }, [categoriesData]);
+
+  const categorySlugMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    categoriesData?.forEach(cat => { map[cat._id] = cat.slug; });
     return map;
   }, [categoriesData]);
 
@@ -243,8 +253,46 @@ function PostsContent() {
     }
   };
 
-  const openFrontend = (slug: string) => {
-    window.open(`/posts/${slug}`, '_blank');
+  const handleBulkStatusUpdate = async (mode: 'publish' | 'unpublish') => {
+    const nextStatus = mode === 'publish' ? 'Published' : 'Draft';
+    setBulkStatusLoading(mode);
+    try {
+      for (const id of selectedIds) {
+        await updatePost({
+          id,
+          status: nextStatus,
+          publishImmediately: mode === 'publish' ? true : undefined,
+        });
+      }
+      applyManualSelection([]);
+      toast.success(`Đã cập nhật ${selectedIds.length} bài viết`);
+    } catch {
+      toast.error('Có lỗi khi cập nhật trạng thái');
+    } finally {
+      setBulkStatusLoading(null);
+    }
+  };
+
+  const handleBulkClearBrokenMedia = async () => {
+    setIsClearingBrokenMedia(true);
+    try {
+      const result = await bulkClearBrokenMedia({ ids: selectedIds });
+      applyManualSelection([]);
+      if (result.cleared > 0) {
+        toast.success(`Đã xóa ${result.cleared} ảnh lỗi trong ${result.updated} bài viết`);
+      } else {
+        toast.info('Không tìm thấy ảnh lỗi trong bài viết đã chọn');
+      }
+    } catch {
+      toast.error('Có lỗi khi xóa ảnh lỗi');
+    } finally {
+      setIsClearingBrokenMedia(false);
+    }
+  };
+
+  const openFrontend = (slug: string, categoryId: string) => {
+    const categorySlug = categorySlugMap[categoryId];
+    window.open(categorySlug ? `/${categorySlug}/${slug}` : `/posts/${slug}`, '_blank');
   };
 
   return (
@@ -263,6 +311,15 @@ function PostsContent() {
         onSelectPage={() =>{  applyManualSelection(paginatedPosts.map(post => post._id)); }}
         onSelectAllResults={() =>{  setSelectionMode('all'); }}
         isSelectingAllResults={isSelectingAll}
+        onPublish={() =>{  void handleBulkStatusUpdate('publish'); }}
+        onUnpublish={() =>{  void handleBulkStatusUpdate('unpublish'); }}
+        isStatusLoading={bulkStatusLoading}
+        publishLabel="Xuất bản"
+        publishLoadingLabel="Đang xuất bản..."
+        unpublishLabel="Chuyển nháp"
+        unpublishLoadingLabel="Đang chuyển nháp..."
+        onClearBrokenMedia={() =>{  void handleBulkClearBrokenMedia(); }}
+        isClearBrokenMediaLoading={isClearingBrokenMedia}
         onDelete={handleBulkDelete}
         onClearSelection={() =>{  applyManualSelection([]); }}
       />
@@ -368,7 +425,7 @@ function PostsContent() {
                     )}
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" title="Xem bài viết" onClick={() =>{  openFrontend(post.slug); }}><ExternalLink size={16}/></Button>
+                        <Button variant="ghost" size="icon" className="text-blue-600 hover:text-blue-700" title="Xem bài viết" onClick={() =>{  openFrontend(post.slug, post.categoryId); }}><ExternalLink size={16}/></Button>
                         <Link href={`/admin/posts/${post._id}/edit`}><Button variant="ghost" size="icon"><Edit size={16}/></Button></Link>
                         <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={ async () => handleDelete(post._id)}><Trash2 size={16}/></Button>
                       </div>

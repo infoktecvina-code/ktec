@@ -1,4 +1,10 @@
-import type { ProcessConfig, ProcessStep, ProcessStyle } from '../_types';
+import {
+  normalizeProcessCornerRadius,
+  normalizeProcessSpacing,
+  type ProcessConfig,
+  type ProcessStep,
+  type ProcessStyle,
+} from '../_types';
 
 export interface ProcessRenderableStep {
   key: string;
@@ -17,7 +23,9 @@ const PROCESS_STYLE_SET = new Set<ProcessStyle>([
   'cards',
   'accordion',
   'minimal',
+  'compactMinimal',
   'grid',
+  'alternating',
 ]);
 
 const coerceText = (value: unknown) => {
@@ -121,8 +129,26 @@ export const normalizeProcessConfig = (rawConfig: unknown): ProcessConfig => {
     ? rawConfig as Record<string, unknown>
     : {};
 
+  const rawCols = config.desktopColumns;
+  const desktopColumns: 3 | 4 = rawCols === 3 ? 3 : 4;
+
   return {
+    cornerRadius: normalizeProcessCornerRadius(config.cornerRadius, config.noBorderRadius),
+    hideHeader: typeof config.hideHeader === 'boolean' ? config.hideHeader : false,
+    showTitle: typeof config.showTitle === 'boolean' ? config.showTitle : true,
+    showSubtitle: typeof config.showSubtitle === 'boolean' ? config.showSubtitle : true,
+    subtitle: coerceText(config.subtitle),
+    headerAlign: config.headerAlign === 'left' || config.headerAlign === 'right' ? config.headerAlign : 'center',
+    titleColorPrimary: typeof config.titleColorPrimary === 'boolean' ? config.titleColorPrimary : false,
+    subtitleAboveTitle: typeof config.subtitleAboveTitle === 'boolean' ? config.subtitleAboveTitle : false,
+    uppercaseText: typeof config.uppercaseText === 'boolean' ? config.uppercaseText : false,
+    showBadge: typeof config.showBadge === 'boolean' ? config.showBadge : true,
+    badgeText: coerceText(config.badgeText),
+    noBorderRadius: config.noBorderRadius === true,
+    noVerticalMargin: config.noVerticalMargin === true,
+    spacing: normalizeProcessSpacing(config.spacing, config.noVerticalMargin),
     steps: serializeProcessFormSteps(normalizeProcessFormSteps(config.steps)),
     style: normalizeProcessStyle(config.style),
+    desktopColumns,
   };
 };

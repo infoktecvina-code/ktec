@@ -2,15 +2,25 @@
 
 import type { DragEvent } from 'react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
+import { AdminImage as Image } from '@/app/admin/components/AdminImage';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-import { GripVertical, Image as ImageIcon, Link, Loader2, Plus, Trash2, Upload } from 'lucide-react';
+import { ClipboardPaste, GripVertical, Image as ImageIcon, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, cn } from './ui';
-import { prepareImageForUpload, type SquareCropSelection, validateImageFile } from '@/lib/image/uploadPipeline';
+import { Button, Input, cn } from './ui';
+import { prepareImageForUpload, validateImageFile } from '@/lib/image/uploadPipeline';
+import { getVideoEmbedUrl, getVideoThumbnail, isVideoUrl } from '@/lib/utils/media';
 import { resolveNamingContext, type ImageNamingContext } from '@/lib/image/uploadNaming';
+import {
+  DEFAULT_PRODUCT_IMAGE_ASPECT_RATIO,
+  getProductImageAspectRatioCssValue,
+  getProductImageAspectRatioLabel,
+  type ImageAspectRatioInput,
+} from '@/lib/products/image-aspect-ratio';
+import { useFileDraftUploads } from './useFileDraftUploads';
+import { ImageEditorDialog } from './ImageEditorDialog';
+import { ImageSourceActions } from './ImageSourceActions';
 export interface ImageItem {
   id: string | number;
   url: string;
@@ -18,7 +28,7 @@ export interface ImageItem {
   [key: string]: unknown; // Allow extra fields like link, title, etc.
 }
 
-const CROP_VIEW_SIZE = 320;
+type ImageAspectRatioResolver<T extends ImageItem> = ImageAspectRatioInput | ((item: T, index: number) => ImageAspectRatioInput);
 
 interface MultiImageUploaderProps<T extends ImageItem> {
   items: T[];
@@ -35,14 +45,23 @@ interface MultiImageUploaderProps<T extends ImageItem> {
   maxItems?: number;
   minItems?: number;
   aspectRatio?: 'square' | 'video' | 'banner' | 'auto';
+  imageAspectRatio?: ImageAspectRatioInput;
   columns?: 1 | 2 | 3 | 4;
   showReorder?: boolean;
   addButtonText?: string;
   emptyText?: string;
   layout?: 'horizontal' | 'vertical'; // Vertical: image on top, fields below (better for cards)
-  enableSquareCrop?: boolean;
+  enableCrop?: boolean;
+  cropOnUpload?: boolean;
+  cropAspectRatio?: ImageAspectRatioResolver<T>;
   deleteMode?: 'immediate' | 'defer';
   namingIndexOffset?: number;
+  onUploadComplete?: (info: { itemId: string | number; storageId: Id<'_storage'>; url: string; folder: string }) => void | Promise<void>;
+  /** Khi bật, URL video (.mp4, .webm) sẽ render <video> thay vì <Image> */
+  allowVideoUrl?: boolean;
+  /** Bật editor dùng chung: crop + remove background như logo trong settings */
+  enableImageEditor?: boolean;
+  imageFit?: 'cover' | 'contain';
 }
 
 export function MultiImageUploader<T extends ImageItem>({
@@ -56,14 +75,21 @@ export function MultiImageUploader<T extends ImageItem>({
   maxItems = 20,
   minItems = 1,
   aspectRatio = 'video',
+  imageAspectRatio,
   columns = 1,
   showReorder = true,
   addButtonText = 'Thêm ảnh',
   emptyText = 'Chưa có ảnh nào',
   layout = 'horizontal',
-  enableSquareCrop = false,
+  enableCrop = false,
+  cropOnUpload = enableCrop,
+  cropAspectRatio = DEFAULT_PRODUCT_IMAGE_ASPECT_RATIO,
   deleteMode = 'immediate',
   namingIndexOffset = 0,
+  onUploadComplete,
+  allowVideoUrl = false,
+  enableImageEditor = false,
+  imageFit = 'cover',
 }: MultiImageUploaderProps<T>) {
   const itemsRef = useRef(items);
   const [uploadingIds, setUploadingIds] = useState<Set<string | number>>(new Set());
@@ -76,16 +102,14 @@ export function MultiImageUploader<T extends ImageItem>({
   const [cropItemId, setCropItemId] = useState<string | number | null>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [cropPreviewUrl, setCropPreviewUrl] = useState<string | null>(null);
-  const [cropScale, setCropScale] = useState(1);
-  const [cropXPercent, setCropXPercent] = useState(0.5);
-  const [cropYPercent, setCropYPercent] = useState(0.5);
-  const [sourceDimensions, setSourceDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [editItemId, setEditItemId] = useState<string | number | null>(null);
   const inputRefs = useRef<Map<string | number, HTMLInputElement>>(new Map());
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
   const saveImage = useMutation(api.storage.saveImage);
   const deleteImage = useMutation(api.storage.deleteImage);
+  const { trackDraftUpload } = useFileDraftUploads(`multi-image-uploader:${folder}`);
 
   const markBroken = useCallback((itemId: string | number) => {
     setBrokenIds(prev => new Set(prev).add(itemId));
@@ -135,10 +159,6 @@ export function MultiImageUploader<T extends ImageItem>({
     setCropItemId(null);
     setCropFile(null);
     setCropPreviewUrl(null);
-    setSourceDimensions(null);
-    setCropScale(1);
-    setCropXPercent(0.5);
-    setCropYPercent(0.5);
   }, [cropPreviewUrl]);
 
   const openCropper = useCallback((itemId: string | number, file: File) => {
@@ -148,13 +168,9 @@ export function MultiImageUploader<T extends ImageItem>({
     setCropItemId(itemId);
     setCropFile(file);
     setCropPreviewUrl(URL.createObjectURL(file));
-    setSourceDimensions(null);
-    setCropScale(1);
-    setCropXPercent(0.5);
-    setCropYPercent(0.5);
   }, [cropPreviewUrl]);
 
-  const handleFileUpload = useCallback(async (itemId: string | number, file: File, crop?: SquareCropSelection) => {
+  const handleFileUpload = useCallback(async (itemId: string | number, file: File) => {
     const validationError = validateImageFile(file, 5);
     if (validationError) {
       toast.error(validationError);
@@ -170,7 +186,7 @@ export function MultiImageUploader<T extends ImageItem>({
         field: 'image',
         index: (itemIndex >= 0 ? itemIndex + 1 : itemsRef.current.length + 1) + namingIndexOffset,
       });
-      const prepared = await prepareImageForUpload(file, crop ? { crop, naming: resolvedNaming } : { naming: resolvedNaming });
+      const prepared = await prepareImageForUpload(file, { naming: resolvedNaming });
       const uploadUrl = await generateUploadUrl();
 
       const response = await fetch(uploadUrl, {
@@ -192,12 +208,19 @@ export function MultiImageUploader<T extends ImageItem>({
         storageId: storageId as Id<"_storage">,
         width: prepared.width,
       });
+      await trackDraftUpload(storageId as Id<'_storage'>, folder);
 
       onChange(itemsRef.current.map(item => 
         item.id === itemId 
           ? { ...item, [imageKey]: result.url ?? '', storageId: storageId as Id<'_storage'> } as T
           : item
       ));
+      await onUploadComplete?.({
+        folder,
+        itemId,
+        storageId: storageId as Id<'_storage'>,
+        url: result.url ?? '',
+      });
       clearBroken(itemId);
 
       toast.success('Tải ảnh lên thành công');
@@ -211,7 +234,7 @@ export function MultiImageUploader<T extends ImageItem>({
         return next;
       });
     }
-  }, [generateUploadUrl, saveImage, folder, imageKey, onChange, clearBroken, naming, namingIndexOffset]);
+  }, [generateUploadUrl, saveImage, folder, imageKey, onChange, onUploadComplete, trackDraftUpload, clearBroken, naming, namingIndexOffset]);
 
   const handleSelectedFile = useCallback((itemId: string | number, file: File) => {
     const validationError = validateImageFile(file, 5);
@@ -220,13 +243,63 @@ export function MultiImageUploader<T extends ImageItem>({
       return;
     }
 
-    if (enableSquareCrop) {
+    if (enableCrop && cropOnUpload) {
       openCropper(itemId, file);
       return;
     }
 
     void handleFileUpload(itemId, file);
-  }, [enableSquareCrop, openCropper, handleFileUpload]);
+  }, [enableCrop, cropOnUpload, openCropper, handleFileUpload]);
+
+  const handlePasteImage = useCallback(async (itemId: string | number) => {
+    try {
+      const clipItems = await navigator.clipboard.read();
+      for (const ci of clipItems) {
+        const imgType = ci.types.find(t => t.startsWith('image/'));
+        if (imgType) {
+          const blob = await ci.getType(imgType);
+          const ext = imgType.split('/')[1] || 'png';
+          const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imgType });
+          handleSelectedFile(itemId, file);
+          return;
+        }
+      }
+      toast.error('Clipboard không có ảnh.');
+    } catch {
+      toast.error('Không đọc được clipboard.');
+    }
+  }, [handleSelectedFile]);
+
+  const handleCropExistingImage = useCallback(async (itemId: string | number, imageUrl: string) => {
+    if (!enableCrop || !imageUrl || isVideoUrl(imageUrl)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error('Không thể tải ảnh hiện tại');
+      }
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) {
+        toast.error('Ảnh hiện tại không hỗ trợ cắt.');
+        return;
+      }
+      const extension = blob.type.split('/')[1] || 'jpg';
+      const file = new File([blob], `hero-crop-${Date.now()}.${extension}`, { type: blob.type });
+      openCropper(itemId, file);
+    } catch (error) {
+      console.error('Crop existing image error:', error);
+      toast.error('Không thể mở ảnh để cắt. Hãy upload lại ảnh nếu ảnh lấy từ URL ngoài.');
+    }
+  }, [enableCrop, openCropper]);
+
+  const resolveCropAspectRatio = useCallback((item: T | undefined, index: number): ImageAspectRatioInput => {
+    if (typeof cropAspectRatio === 'function' && item) {
+      return cropAspectRatio(item, index);
+    }
+    return typeof cropAspectRatio === 'function' ? DEFAULT_PRODUCT_IMAGE_ASPECT_RATIO : cropAspectRatio;
+  }, [cropAspectRatio]);
 
   const handleMultipleFiles = useCallback(async (files: FileList) => {
     const filesToUpload = [...files];
@@ -234,9 +307,9 @@ export function MultiImageUploader<T extends ImageItem>({
       return;
     }
 
-    if (enableSquareCrop) {
+    if (enableCrop && cropOnUpload) {
       if (filesToUpload.length > 1) {
-        toast.message('Đang bật cắt ảnh 1:1: vui lòng chọn từng ảnh để cắt chính xác.');
+        toast.message('Đang bật cắt ảnh theo tỉ lệ: vui lòng chọn từng ảnh để cắt chính xác.');
       }
       const targetItem = items.find(item => !item[imageKey]);
       if (targetItem) {
@@ -300,7 +373,7 @@ export function MultiImageUploader<T extends ImageItem>({
 
     onChange([...items, ...newItems]);
     await Promise.all(filesToAdd.map(async (file, i) => handleFileUpload(newItems[i].id, file)));
-  }, [items, maxItems, imageKey, onChange, handleFileUpload, enableSquareCrop, handleSelectedFile]);
+  }, [items, maxItems, imageKey, onChange, handleFileUpload, enableCrop, cropOnUpload, handleSelectedFile]);
 
   const handleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -482,32 +555,53 @@ export function MultiImageUploader<T extends ImageItem>({
 
   const inputId = `multi-image-input-${Math.random().toString(36).slice(2, 9)}`;
   const isCropOpen = Boolean(cropItemId !== null && cropFile && cropPreviewUrl);
-  const renderedSize = sourceDimensions
-    ? {
-        width: sourceDimensions.width * Math.max(CROP_VIEW_SIZE / sourceDimensions.width, CROP_VIEW_SIZE / sourceDimensions.height) * cropScale,
-        height: sourceDimensions.height * Math.max(CROP_VIEW_SIZE / sourceDimensions.width, CROP_VIEW_SIZE / sourceDimensions.height) * cropScale,
-      }
-    : null;
-  const previewStyle = renderedSize
-    ? {
-        width: renderedSize.width,
-        height: renderedSize.height,
-        left: -(Math.max(0, renderedSize.width - CROP_VIEW_SIZE) * cropXPercent),
-        top: -(Math.max(0, renderedSize.height - CROP_VIEW_SIZE) * cropYPercent),
-      }
-    : undefined;
+  const cropItemIndex = cropItemId === null ? -1 : items.findIndex(item => item.id === cropItemId);
+  const activeCropAspectRatio = cropItemIndex >= 0 ? resolveCropAspectRatio(items[cropItemIndex], cropItemIndex) : resolveCropAspectRatio(undefined, 0);
+  const resolvedImageAspectRatio = imageAspectRatio ? getProductImageAspectRatioCssValue(imageAspectRatio) : null;
+  const imageClassName = cn(
+    imageFit === 'contain' ? 'object-contain p-4' : 'object-cover',
+    'transition-opacity'
+  );
+  const editedItem = editItemId === null ? undefined : items.find(item => item.id === editItemId);
+  const editedImageUrl = editedItem?.[imageKey] as string | undefined;
+  const renderVideoPreview = (videoUrl: string, className?: string) => {
+    const embedUrl = getVideoEmbedUrl(videoUrl, { autoplay: false });
+    const thumbnailUrl = getVideoThumbnail(videoUrl);
 
-  const handleConfirmCrop = async () => {
-    if (cropItemId === null || !cropFile) {
-      return;
+    if (thumbnailUrl) {
+      return (
+        <Image
+          src={thumbnailUrl}
+          alt=""
+          fill
+          sizes="(max-width: 768px) 100vw, 320px"
+          className={cn(imageClassName, className)}
+        />
+      );
     }
 
-    await handleFileUpload(cropItemId, cropFile, {
-      scale: cropScale,
-      xPercent: cropXPercent,
-      yPercent: cropYPercent,
-    });
-    resetCropState();
+    if (embedUrl) {
+      return (
+        <iframe
+          src={embedUrl}
+          title="Video preview"
+          className={cn("w-full h-full border-0", className)}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+        />
+      );
+    }
+
+    return (
+      <video
+        src={videoUrl}
+        className={cn("w-full h-full object-cover transition-opacity", className)}
+        muted
+        loop
+        autoPlay
+        playsInline
+      />
+    );
   };
 
   return (
@@ -548,10 +642,43 @@ export function MultiImageUploader<T extends ImageItem>({
         <p className="text-xs text-slate-400 mt-1">PNG, JPG, GIF - Tự động chuyển WebP</p>
       </div>
 
+      {/* Clipboard paste button */}
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            const clipboardItems = await navigator.clipboard.read();
+            for (const item of clipboardItems) {
+              const imageType = item.types.find(t => t.startsWith('image/'));
+              if (imageType) {
+                const blob = await item.getType(imageType);
+                const ext = imageType.split('/')[1] || 'png';
+                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: imageType });
+                const fakeFileList = Object.assign([file], { item: (i: number) => [file][i] || null }) as unknown as FileList;
+                void handleMultipleFiles(fakeFileList);
+                return;
+              }
+            }
+            toast.error('Clipboard không có ảnh. Hãy copy ảnh trước.');
+          } catch (err) {
+            if (err instanceof DOMException && err.name === 'NotAllowedError') {
+              toast.error('Trình duyệt chặn quyền đọc clipboard.');
+            } else {
+              toast.error('Không đọc được clipboard. Hãy copy ảnh trước.');
+            }
+          }
+        }}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-400"
+        title="Copy ảnh rồi click vào đây"
+      >
+        <ClipboardPaste size={14} /> Dán ảnh từ clipboard
+      </button>
+
       {/* Items grid */}
       {items.length > 0 ? (
         <div className={cn('grid gap-4', columnClasses[columns])}>
-          {items.map((item) => {
+          {items.map((item, _idx) => {
+            const itemKey = item.id != null ? String(item.id) : `idx-${_idx}`;
             const imageUrl = item[imageKey] as string;
             const isUploading = uploadingIds.has(item.id);
             const isUrlMode = urlModeIds.has(item.id);
@@ -559,12 +686,14 @@ export function MultiImageUploader<T extends ImageItem>({
             const isDragOverItem = dragOverItemId === item.id && draggedItemId !== null;
             const isFileDragOver = fileDragOverItemId === item.id;
             const isBroken = brokenIds.has(item.id);
+            const itemCropAspectRatio = resolveCropAspectRatio(item, _idx);
+            const itemCropRatioLabel = getProductImageAspectRatioLabel(itemCropAspectRatio);
 
             // Vertical layout - card style với ảnh trên, input bên dưới
             if (layout === 'vertical') {
               return (
                 <div
-                  key={item.id}
+                  key={itemKey}
                   draggable={showReorder}
                   onDragStart={(e) =>{  handleItemDragStart(e, item.id); }}
                   onDragEnd={handleItemDragEnd}
@@ -584,9 +713,11 @@ export function MultiImageUploader<T extends ImageItem>({
                       isFileDragOver 
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
                         : 'border-slate-200 dark:border-slate-700',
+                      imageFit === 'contain' && !isFileDragOver && 'bg-white dark:bg-slate-950',
                       aspectClasses[aspectRatio],
                       !isUrlMode && 'cursor-pointer hover:border-blue-400'
                     )}
+                    style={resolvedImageAspectRatio ? { aspectRatio: resolvedImageAspectRatio } : undefined}
                     onClick={() => !isUploading && !isUrlMode && inputRefs.current.get(item.id)?.click()}
                     onDragEnter={(e) =>{  handleItemFileDragEnter(e, item.id); }}
                     onDragLeave={handleItemFileDragLeave}
@@ -594,14 +725,18 @@ export function MultiImageUploader<T extends ImageItem>({
                     onDrop={(e) =>{  handleItemFileDrop(e, item.id); }}
                   >
                     {imageUrl && !isBroken ? (
+                      allowVideoUrl && isVideoUrl(imageUrl) ? (
+                        renderVideoPreview(imageUrl, isFileDragOver ? 'opacity-50' : undefined)
+                      ) : (
                       <Image
                         src={imageUrl}
                         alt=""
                         fill
                         sizes="(max-width: 768px) 100vw, 320px"
-                        className={cn("object-cover transition-opacity", isFileDragOver && "opacity-50")}
+                        className={cn(imageClassName, isFileDragOver && "opacity-50")}
                         onError={() => markBroken(item.id)}
                       />
+                      )
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-700">
                         <ImageIcon size={32} className="text-slate-400" />
@@ -652,28 +787,40 @@ export function MultiImageUploader<T extends ImageItem>({
 
                   {/* Bottom area: fields */}
                   <div className="p-3 space-y-2 border-2 border-t-0 border-slate-200 dark:border-slate-700 rounded-b-lg">
-                    {/* Toggle URL mode - compact */}
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => isUrlMode && toggleUrlMode(item.id)}
-                        className={cn(
-                          'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                          !isUrlMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 hover:bg-slate-200'
-                        )}
-                      >
-                        <Upload size={10} /> Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => !isUrlMode && toggleUrlMode(item.id)}
-                        className={cn(
-                          'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                          isUrlMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 hover:bg-slate-200'
-                        )}
-                      >
-                        <Link size={10} /> URL
-                      </button>
+                    <div className="flex flex-wrap gap-1">
+                      <ImageSourceActions
+                        mode={isUrlMode ? 'url' : 'upload'}
+                        onUpload={() => {
+                          if (isUrlMode) {
+                            toggleUrlMode(item.id);
+                          }
+                          inputRefs.current.get(item.id)?.click();
+                        }}
+                        onUrl={() => {
+                          if (!isUrlMode) {
+                            toggleUrlMode(item.id);
+                          }
+                        }}
+                        onPaste={() => handlePasteImage(item.id)}
+                        onCrop={enableCrop ? () => { void handleCropExistingImage(item.id, imageUrl); } : undefined}
+                        cropLabel={itemCropRatioLabel}
+                        cropDisabled={!imageUrl || isVideoUrl(imageUrl)}
+                        iconSize={10}
+                        className="gap-1"
+                      />
+                      {enableImageEditor && imageUrl && !isVideoUrl(imageUrl) && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditItemId(item.id);
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300"
+                          title="Chỉnh sửa logo: crop hoặc xóa nền"
+                        >
+                          <Pencil size={10} /> Sửa / xóa nền
+                        </button>
+                      )}
                     </div>
                     {isUrlMode && (
                       <Input
@@ -700,7 +847,7 @@ export function MultiImageUploader<T extends ImageItem>({
             // Horizontal layout (default) - ảnh bên trái, fields bên phải
             return (
               <div
-                key={item.id}
+                key={itemKey}
                 draggable={showReorder}
                 onDragStart={(e) =>{  handleItemDragStart(e, item.id); }}
                 onDragEnd={handleItemDragEnd}
@@ -728,9 +875,11 @@ export function MultiImageUploader<T extends ImageItem>({
                       isFileDragOver 
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 scale-105 shadow-lg' 
                         : 'border-slate-200 dark:border-slate-700',
+                      imageFit === 'contain' && !isFileDragOver && 'bg-white dark:bg-slate-950',
                       aspectClasses[aspectRatio],
                       !isUrlMode && 'cursor-pointer hover:border-blue-400'
                     )}
+                    style={resolvedImageAspectRatio ? { aspectRatio: resolvedImageAspectRatio } : undefined}
                     onClick={() => !isUploading && !isUrlMode && inputRefs.current.get(item.id)?.click()}
                     onDragEnter={(e) =>{  handleItemFileDragEnter(e, item.id); }}
                     onDragLeave={handleItemFileDragLeave}
@@ -738,14 +887,18 @@ export function MultiImageUploader<T extends ImageItem>({
                     onDrop={(e) =>{  handleItemFileDrop(e, item.id); }}
                   >
                     {imageUrl && !isBroken ? (
+                      allowVideoUrl && isVideoUrl(imageUrl) ? (
+                        renderVideoPreview(imageUrl, isFileDragOver ? 'opacity-50' : undefined)
+                      ) : (
                       <Image
                         src={imageUrl}
                         alt=""
                         fill
                         sizes="(max-width: 768px) 100vw, 320px"
-                        className={cn("object-cover transition-opacity", isFileDragOver && "opacity-50")}
+                        className={cn(imageClassName, isFileDragOver && "opacity-50")}
                         onError={() => markBroken(item.id)}
                       />
+                      )
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-slate-100 dark:bg-slate-700">
                         <ImageIcon size={24} className="text-slate-400" />
@@ -779,28 +932,35 @@ export function MultiImageUploader<T extends ImageItem>({
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    {/* Toggle URL mode */}
-                    <div className="flex gap-2 mb-2">
-                      <button
-                        type="button"
-                        onClick={() => isUrlMode && toggleUrlMode(item.id)}
-                        className={cn(
-                          'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                          !isUrlMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600'
-                        )}
-                      >
-                        <Upload size={12} /> Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => !isUrlMode && toggleUrlMode(item.id)}
-                        className={cn(
-                          'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                          isUrlMode ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600'
-                        )}
-                      >
-                        <Link size={12} /> URL
-                      </button>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      <ImageSourceActions
+                        mode={isUrlMode ? 'url' : 'upload'}
+                        onUpload={() => {
+                          if (isUrlMode) {
+                            toggleUrlMode(item.id);
+                          }
+                          inputRefs.current.get(item.id)?.click();
+                        }}
+                        onUrl={() => {
+                          if (!isUrlMode) {
+                            toggleUrlMode(item.id);
+                          }
+                        }}
+                        onPaste={() => handlePasteImage(item.id)}
+                        onCrop={enableCrop ? () => { void handleCropExistingImage(item.id, imageUrl); } : undefined}
+                        cropLabel={itemCropRatioLabel}
+                        cropDisabled={!imageUrl || isVideoUrl(imageUrl)}
+                      />
+                      {enableImageEditor && imageUrl && !isVideoUrl(imageUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditItemId(item.id); }}
+                          className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300"
+                          title="Chỉnh sửa logo: crop hoặc xóa nền"
+                        >
+                          <Pencil size={12} /> Sửa / xóa nền
+                        </button>
+                      )}
                     </div>
 
                     {isUrlMode && (
@@ -850,81 +1010,32 @@ export function MultiImageUploader<T extends ImageItem>({
       )}
     </div>
 
-    <Dialog open={isCropOpen} onOpenChange={(open) => { if (!open) {resetCropState();} }}>
-      <DialogContent className="max-w-[92vw] w-[560px]">
-        <DialogHeader>
-          <DialogTitle>Cắt ảnh vuông 1:1</DialogTitle>
-          <DialogDescription>Điều chỉnh vùng cắt trước khi tải lên.</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="mx-auto relative h-[320px] w-[320px] overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
-            {cropPreviewUrl && (
-              <img
-                src={cropPreviewUrl}
-                alt="Crop preview"
-                className="absolute max-w-none"
-                style={previewStyle}
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  setSourceDimensions({
-                    width: image.naturalWidth,
-                    height: image.naturalHeight,
-                  });
-                }}
-              />
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <label className="block text-sm text-slate-600 dark:text-slate-300">
-              Zoom ({cropScale.toFixed(1)}x)
-              <input
-                type="range"
-                min={1}
-                max={3}
-                step={0.1}
-                value={cropScale}
-                onChange={(e) => setCropScale(Number(e.target.value))}
-                className="mt-1 w-full"
-              />
-            </label>
-            <label className="block text-sm text-slate-600 dark:text-slate-300">
-              Dịch ngang
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={cropXPercent}
-                onChange={(e) => setCropXPercent(Number(e.target.value))}
-                className="mt-1 w-full"
-              />
-            </label>
-            <label className="block text-sm text-slate-600 dark:text-slate-300">
-              Dịch dọc
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={cropYPercent}
-                onChange={(e) => setCropYPercent(Number(e.target.value))}
-                className="mt-1 w-full"
-              />
-            </label>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={resetCropState} disabled={uploadingIds.size > 0}>Hủy</Button>
-          <Button type="button" variant="accent" onClick={() => { void handleConfirmCrop(); }} disabled={uploadingIds.size > 0 || !sourceDimensions}>
-            {uploadingIds.size > 0 && <Loader2 size={16} className="animate-spin mr-2" />}
-            Dùng ảnh đã cắt
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {isCropOpen && cropPreviewUrl && cropItemId !== null && (
+      <ImageEditorDialog
+        imageUrl={cropPreviewUrl}
+        preferredCropAspectRatio={activeCropAspectRatio}
+        onClose={resetCropState}
+        onApply={(editedFile) => {
+          const targetItemId = cropItemId;
+          resetCropState();
+          void handleFileUpload(targetItemId, editedFile);
+        }}
+      />
+    )}
+    {enableImageEditor && editedImageUrl && (
+      <ImageEditorDialog
+        imageUrl={editedImageUrl}
+        onClose={() => setEditItemId(null)}
+        onApply={(editedFile) => {
+          const targetItemId = editItemId;
+          setEditItemId(null);
+          if (targetItemId !== null) {
+            void handleFileUpload(targetItemId, editedFile);
+          }
+        }}
+      />
+    )}
     </>
   );
 }
+

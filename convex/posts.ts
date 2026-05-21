@@ -5,8 +5,15 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { contentStatus } from "./lib/validators";
 import { rankByFuzzyMatches } from "./lib/search";
+import { countPublishedPosts, recordPostAggregates } from "./lib/aggregates/publicContent";
+import { requireAdminPermission } from "./lib/permissions";
 import * as PostsModel from "./model/posts";
 import type { Doc } from "./_generated/dataModel";
+import {
+  isBrokenStorageBackedUrl,
+  removeOwnerFilesAndCleanup,
+  syncOwnerFilesAndCleanup,
+} from "./lib/fileService";
 import { generateArticlePayload } from "../lib/posts/generator/assembler";
 import { getMacroTemplate } from "../lib/posts/generator/macro-templates";
 import type { GeneratorProduct, GeneratorSettings, GeneratorRequest } from "../lib/posts/generator/types";
@@ -37,6 +44,29 @@ const postDoc = v.object({
   title: v.string(),
   views: v.number(),
 });
+
+const POSTS_AGGREGATES_READY_KEY = "postsPublishedAggregatesReady";
+const POSTS_AGGREGATES_BACKFILLED_AT_KEY = "postsPublishedAggregatesBackfilledAt";
+
+async function isPostsAggregateReady(ctx: QueryCtx) {
+  const setting = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", POSTS_AGGREGATES_READY_KEY))
+    .unique();
+  return setting?.value === true;
+}
+
+async function upsertPostsAggregateSetting(ctx: MutationCtx, key: string, value: unknown) {
+  const existing = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { group: "contentAggregates", value });
+    return;
+  }
+  await ctx.db.insert("settings", { group: "contentAggregates", key, value });
+}
 
 // Pagination result validator - includes new Convex pagination fields
 const paginatedPosts = v.object({
@@ -411,6 +441,9 @@ export const countPublished = query({
   args: { categoryId: v.optional(v.id("postCategories")) },
   handler: async (ctx, args) => {
     const now = Date.now();
+    if (await isPostsAggregateReady(ctx)) {
+      return countPublishedPosts(ctx, { categoryId: args.categoryId, now });
+    }
     if (args.categoryId) {
       const posts = await ctx.db
         .query("posts")
@@ -676,6 +709,14 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const id = await PostsModel.create(ctx, args);
+    if (args.thumbnailStorageId) {
+      await syncOwnerFilesAndCleanup(ctx, {
+        ownerField: "thumbnail",
+        ownerId: id,
+        ownerTable: "posts",
+        purpose: "post-thumbnail",
+      }, [args.thumbnailStorageId]);
+    }
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "post" });
     return id;
   },
@@ -709,22 +750,77 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const previous = await ctx.db.get(args.id);
-    await PostsModel.update(ctx, args);
+    const nextArgs = { ...args };
+    if (
+      Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId")
+      && args.thumbnailStorageId === null
+      && !Object.prototype.hasOwnProperty.call(args, "thumbnail")
+    ) {
+      nextArgs.thumbnail = "";
+    }
+    await PostsModel.update(ctx, nextArgs);
     const shouldCheckStorage = Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId");
-    if (shouldCheckStorage && previous?.thumbnailStorageId) {
+    if (shouldCheckStorage && previous) {
       const nextThumbnailStorageId = Object.prototype.hasOwnProperty.call(args, "thumbnailStorageId")
         ? args.thumbnailStorageId ?? null
         : previous.thumbnailStorageId ?? null;
-      if (!nextThumbnailStorageId || nextThumbnailStorageId !== previous.thumbnailStorageId) {
-        await ctx.runMutation(api.storage.cleanupStorageIfUnreferenced, {
-          storageId: previous.thumbnailStorageId,
-        });
-      }
+      await syncOwnerFilesAndCleanup(ctx, {
+        ownerField: "thumbnail",
+        ownerId: args.id,
+        ownerTable: "posts",
+        purpose: "post-thumbnail",
+      }, [nextThumbnailStorageId], {
+        previousStorageIds: [previous.thumbnailStorageId],
+      });
     }
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "post" });
     return null;
   },
   returns: v.null(),
+});
+
+export const bulkClearBrokenMedia = mutation({
+  args: { ids: v.array(v.id("posts")) },
+  handler: async (ctx, args) => {
+    let checked = 0;
+    let updated = 0;
+    let cleared = 0;
+    let skipped = 0;
+
+    for (const id of args.ids) {
+      const post = await ctx.db.get(id);
+      if (!post) {
+        skipped += 1;
+        continue;
+      }
+      checked += 1;
+      if (await isBrokenStorageBackedUrl(ctx, post.thumbnail, post.thumbnailStorageId)) {
+        await ctx.db.patch(id, { thumbnail: "", thumbnailStorageId: null });
+        await syncOwnerFilesAndCleanup(ctx, {
+          ownerField: "thumbnail",
+          ownerId: id,
+          ownerTable: "posts",
+          purpose: "post-thumbnail",
+        }, [], {
+          previousStorageIds: [post.thumbnailStorageId],
+        });
+        updated += 1;
+        cleared += 1;
+      }
+    }
+
+    if (updated > 0) {
+      await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "post" });
+    }
+
+    return { checked, cleared, skipped, updated };
+  },
+  returns: v.object({
+    checked: v.number(),
+    cleared: v.number(),
+    skipped: v.number(),
+    updated: v.number(),
+  }),
 });
 
 export const incrementViews = mutation({
@@ -739,7 +835,14 @@ export const incrementViews = mutation({
 export const remove = mutation({
   args: { cascade: v.optional(v.boolean()), id: v.id("posts") },
   handler: async (ctx, args) => {
+    const post = await ctx.db.get(args.id);
     await PostsModel.remove(ctx, args);
+    await removeOwnerFilesAndCleanup(ctx, {
+      ownerId: args.id,
+      ownerTable: "posts",
+    }, {
+      previousStorageIds: [post?.thumbnailStorageId],
+    });
     await ctx.runMutation(api.landingPages.syncProgrammaticFromSourceChange, { source: "post" });
     return null;
   },
@@ -844,6 +947,9 @@ const buildGeneratorProducts = async (
   const categoryNameMap = new Map(
     categories.filter(Boolean).map((category) => [category!._id, category!.name]),
   );
+  const categorySlugMap = new Map(
+    categories.filter(Boolean).map((category) => [category!._id, category!.slug]),
+  );
   const categoryImageMap = new Map(
     categories.filter(Boolean).map((category) => [category!._id, category!.image]),
   );
@@ -859,6 +965,7 @@ const buildGeneratorProducts = async (
       sales: item.sales,
       image: normalizeProductImage(item),
       affiliateLink: item.affiliateLink,
+      categorySlug: categorySlugMap.get(item.categoryId),
     }));
     const categoryImage = categoryImageMap.get(product.categoryId) ?? relatedItems[0]?.image;
     return {
@@ -873,6 +980,7 @@ const buildGeneratorProducts = async (
       affiliateLink: product.affiliateLink,
       categoryId: product.categoryId,
       categoryName: categoryNameMap.get(product.categoryId),
+      categorySlug: categorySlugMap.get(product.categoryId),
       categoryImage,
       description: product.description,
       relatedProducts: relatedItems,
@@ -1063,4 +1171,45 @@ export const createFromGeneratedPayload = mutation({
     return id;
   },
   returns: v.id("posts"),
+});
+
+async function backfillPostAggregateBatch(
+  ctx: MutationCtx,
+  paginationOpts: {
+    cursor: string | null;
+    numItems: number;
+  }
+) {
+  if (paginationOpts.cursor === null) {
+    await upsertPostsAggregateSetting(ctx, POSTS_AGGREGATES_READY_KEY, false);
+  }
+  const result = await ctx.db.query("posts").paginate(paginationOpts);
+  for (const doc of result.page) {
+    await recordPostAggregates(ctx, doc);
+  }
+  if (result.isDone) {
+    await upsertPostsAggregateSetting(ctx, POSTS_AGGREGATES_READY_KEY, true);
+    await upsertPostsAggregateSetting(ctx, POSTS_AGGREGATES_BACKFILLED_AT_KEY, Date.now());
+  }
+  return {
+    continueCursor: result.continueCursor,
+    isDone: result.isDone,
+    processed: result.page.length,
+  };
+}
+
+export const backfillPublishedAggregatesForAdmin = mutation({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    token: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdminPermission(ctx, args.token, "posts", "edit");
+    return backfillPostAggregateBatch(ctx, args.paginationOpts);
+  },
+  returns: v.object({
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+    processed: v.number(),
+  }),
 });

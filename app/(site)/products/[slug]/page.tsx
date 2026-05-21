@@ -2,7 +2,7 @@
 
 import React, { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { PublicImage as Image } from '@/components/shared/PublicImage';
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import type { PaginationStatus } from 'convex/react';
 import { useRouter } from 'next/navigation';
@@ -11,6 +11,17 @@ import { useInView } from 'react-intersection-observer';
 import { api } from '@/convex/_generated/api';
 import { useBrandColors } from '@/components/site/hooks';
 import { getProductDetailColors, type ProductDetailColors } from '@/components/site/products/detail/_lib/colors';
+import { ProductImageLightbox } from '@/components/site/products/detail/_components/ProductImageLightbox';
+import {
+  DEFAULT_PRODUCT_IMAGE_ASPECT_RATIO,
+  getProductImageFrameConfig,
+  getVerticalThumbnailSlots,
+  isProductImageAspectRatio,
+  type ProductImageAspectRatio,
+} from '@/components/site/products/detail/_lib/image-aspect-ratio';
+import { resolveProductImageAspectRatio } from '@/lib/products/image-aspect-ratio';
+import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { ProductImageFrameOverlay, useProductFrameConfig } from '@/components/shared/ProductImageFrameBox';
 import { RichContent, withFormatMarker } from '@/components/common/RichContent';
 import { useCustomerAuth } from '@/app/(site)/auth/context';
 import { notifyAddToCart, useCart } from '@/lib/cart';
@@ -19,14 +30,16 @@ import { ArrowLeft, Award, BadgeCheck, Bell, Bolt, Calendar, Camera, CheckCircle
 import { VariantSelector, type VariantSelectorOption } from '@/components/products/VariantSelector';
 import type { Id } from '@/convex/_generated/dataModel';
 import { getPublicPriceLabel } from '@/lib/products/public-price';
+import { sortSupplementalFaqItems, toRichTextContent } from '@/lib/products/product-supplemental-content';
 
 type ProductDetailStyle = 'classic' | 'modern' | 'minimal';
 type ModernHeroStyle = 'full' | 'split' | 'minimal';
 type MinimalContentWidth = 'narrow' | 'medium' | 'wide';
 type ProductsSaleMode = 'cart' | 'contact' | 'affiliate';
 type RelatedProductsMode = 'fixed' | 'infiniteScroll' | 'pagination';
+type ProductImageAspectRatioSource = 'module' | 'custom';
 
-type ClassicLayoutConfig = {
+type BaseImageLayoutConfig = {
   showRating: boolean;
   showComments: boolean;
   showCommentLikes: boolean;
@@ -34,33 +47,23 @@ type ClassicLayoutConfig = {
   showWishlist: boolean;
   showShare: boolean;
   showAddToCart: boolean;
+};
+
+type ClassicLayoutConfig = BaseImageLayoutConfig & {
   showClassicHighlights: boolean;
 };
 
-type ModernLayoutConfig = {
-  showRating: boolean;
-  showComments: boolean;
-  showCommentLikes: boolean;
-  showCommentReplies: boolean;
-  showWishlist: boolean;
-  showShare: boolean;
-  showAddToCart: boolean;
+type ModernLayoutConfig = BaseImageLayoutConfig & {
   heroStyle: ModernHeroStyle;
 };
 
-type MinimalLayoutConfig = {
-  showRating: boolean;
-  showComments: boolean;
-  showCommentLikes: boolean;
-  showCommentReplies: boolean;
-  showWishlist: boolean;
-  showShare: boolean;
-  showAddToCart: boolean;
+type MinimalLayoutConfig = BaseImageLayoutConfig & {
   contentWidth: MinimalContentWidth;
 };
 
 type ProductDetailExperienceConfig = {
   layoutStyle: ProductDetailStyle;
+  imageAspectRatioSource: ProductImageAspectRatioSource;
   showAddToCart: boolean;
   showClassicHighlights: boolean;
   showHighlights: boolean;
@@ -71,8 +74,11 @@ type ProductDetailExperienceConfig = {
   showWishlist: boolean;
   showShare: boolean;
   showBuyNow: boolean;
+  showAllProductImagesSection: boolean;
+  enableImageLightbox: boolean;
   heroStyle: ModernHeroStyle;
   contentWidth: MinimalContentWidth;
+  imageAspectRatio: ProductImageAspectRatio;
   relatedProductsMode: RelatedProductsMode;
   relatedProductsPerPage: number;
 };
@@ -169,6 +175,7 @@ function useProductDetailExperienceConfig(): ProductDetailExperienceConfig {
   const experienceSetting = useQuery(api.settings.getByKey, { key: 'product_detail_ui' });
   const detailStyleSetting = useQuery(api.settings.getByKey, { key: 'products_detail_style' });
   const highlightsSetting = useQuery(api.settings.getByKey, { key: 'products_detail_classic_highlights_enabled' });
+  const moduleAspectRatioSetting = useQuery(api.admin.modules.getModuleSetting, { moduleKey: 'products', settingKey: 'defaultImageAspectRatio' });
   const cartModule = useQuery(api.admin.modules.getModuleByKey, { key: 'cart' });
   const ordersModule = useQuery(api.admin.modules.getModuleByKey, { key: 'orders' });
   const wishlistModule = useQuery(api.admin.modules.getModuleByKey, { key: 'wishlist' });
@@ -185,10 +192,17 @@ function useProductDetailExperienceConfig(): ProductDetailExperienceConfig {
   const canUseCommentLikes = canUseComments && (commentsLikesFeature?.enabled ?? false);
   const canUseCommentReplies = canUseComments && (commentsRepliesFeature?.enabled ?? false);
 
+  const moduleDefaultAspectRatio = useMemo(
+    () => resolveProductImageAspectRatio(moduleAspectRatioSetting?.value),
+    [moduleAspectRatioSetting?.value]
+  );
+
   return useMemo(() => {
     const raw = experienceSetting?.value as Partial<{
       layoutStyle: ProductDetailStyle;
-      layouts: Partial<Record<ProductDetailStyle, Partial<ClassicLayoutConfig & ModernLayoutConfig & MinimalLayoutConfig>>>;
+      layouts: Partial<Record<ProductDetailStyle, Partial<ClassicLayoutConfig & ModernLayoutConfig & MinimalLayoutConfig & {
+        imageAspectRatio?: ProductImageAspectRatio;
+      }>>>;
       showAddToCart: boolean;
       showClassicHighlights: boolean;
       showHighlights: boolean;
@@ -199,8 +213,12 @@ function useProductDetailExperienceConfig(): ProductDetailExperienceConfig {
       showWishlist: boolean;
       showShare: boolean;
       showBuyNow: boolean;
+      showAllProductImagesSection: boolean;
+      enableImageLightbox?: boolean;
       heroStyle: ModernHeroStyle;
       contentWidth: MinimalContentWidth;
+      imageAspectRatio: ProductImageAspectRatio;
+      imageAspectRatioSource?: ProductImageAspectRatioSource;
       relatedProductsMode: RelatedProductsMode;
       relatedProductsPerPage: number;
     }> | undefined;
@@ -212,6 +230,24 @@ function useProductDetailExperienceConfig(): ProductDetailExperienceConfig {
     const relatedProductsPerPage = typeof raw?.relatedProductsPerPage === 'number' && raw.relatedProductsPerPage > 0
       ? raw.relatedProductsPerPage
       : 8;
+    const legacyAspectRatio = resolveProductImageAspectRatio(
+      raw?.imageAspectRatio
+      ?? raw?.layouts?.classic?.imageAspectRatio
+      ?? raw?.layouts?.modern?.imageAspectRatio
+      ?? raw?.layouts?.minimal?.imageAspectRatio
+      ?? DEFAULT_PRODUCT_IMAGE_ASPECT_RATIO
+    );
+    const imageAspectRatioSource = raw?.imageAspectRatioSource === 'custom' || raw?.imageAspectRatioSource === 'module'
+      ? raw.imageAspectRatioSource
+      : isProductImageAspectRatio(raw?.imageAspectRatio)
+        || isProductImageAspectRatio(raw?.layouts?.classic?.imageAspectRatio)
+        || isProductImageAspectRatio(raw?.layouts?.modern?.imageAspectRatio)
+        || isProductImageAspectRatio(raw?.layouts?.minimal?.imageAspectRatio)
+        ? 'custom'
+        : 'module';
+    const resolvedImageAspectRatio = imageAspectRatioSource === 'module'
+      ? moduleDefaultAspectRatio
+      : legacyAspectRatio;
     const configShowAddToCart = layoutConfig?.showAddToCart ?? raw?.showAddToCart ?? true;
     const classicLayoutHighlights = raw?.layouts?.classic?.showClassicHighlights
       ?? (layoutConfig as Partial<Record<'showClassicHighlights', boolean>>)?.showClassicHighlights;
@@ -240,16 +276,20 @@ function useProductDetailExperienceConfig(): ProductDetailExperienceConfig {
       showWishlist: canUseWishlist ? (layoutConfig?.showWishlist ?? raw?.showWishlist ?? true) : false,
       showShare,
       showBuyNow: (raw?.showBuyNow ?? true) && ordersEnabled,
+      showAllProductImagesSection: raw?.showAllProductImagesSection ?? false,
+      enableImageLightbox: raw?.enableImageLightbox ?? false,
       heroStyle: layoutStyle === 'modern'
         ? (layoutConfig as Partial<ModernLayoutConfig>)?.heroStyle ?? raw?.heroStyle ?? 'full'
         : 'full',
       contentWidth: layoutStyle === 'minimal'
         ? (layoutConfig as Partial<MinimalLayoutConfig>)?.contentWidth ?? raw?.contentWidth ?? 'medium'
         : 'medium',
+      imageAspectRatioSource,
+      imageAspectRatio: resolvedImageAspectRatio,
       relatedProductsMode: normalizedRelatedMode,
       relatedProductsPerPage,
     };
-  }, [experienceSetting?.value, legacyHighlightsEnabled, legacyStyle, cartAvailable, canUseComments, canUseCommentLikes, canUseCommentReplies, canUseWishlist, ordersEnabled]);
+  }, [experienceSetting?.value, legacyHighlightsEnabled, legacyStyle, cartAvailable, canUseComments, canUseCommentLikes, canUseCommentReplies, canUseWishlist, ordersEnabled, moduleDefaultAspectRatio]);
 }
 
 type RatingSummary = { average: number | null; count: number };
@@ -340,10 +380,26 @@ export default function ProductDetailPage({ params }: PageProps) {
   const decrementLike = useMutation(api.comments.decrementLike);
   
   const product = useQuery(api.products.getBySlug, { slug });
+  const supplementalTemplate = useQuery(
+    api.productSupplementalContents.getEffectiveByProduct,
+    product?._id ? { productId: product._id } : 'skip'
+  );
+  const lightboxImages = useMemo(() => (product ? buildProductImages(product) : []), [product]);
   const category = useQuery(
     api.productCategories.getById,
     product?.categoryId ? { id: product.categoryId } : 'skip'
   );
+  const categories = useQuery(api.productCategories.listActive);
+  const routeModeSetting = useQuery(api.settings.getValue, { key: 'ia_route_mode', defaultValue: 'unified' });
+  const routeMode = useMemo(() => normalizeRouteMode(routeModeSetting), [routeModeSetting]);
+  const categorySlugMap = useMemo(() => {
+    if (!categories) {return new Map<string, string>();}
+    return new Map(categories.map((item) => [item._id, item.slug]));
+  }, [categories]);
+  const productImagePlaceholderSetting = useQuery(api.settings.getValue, { key: 'product_image_placeholder', defaultValue: '' });
+  const productImagePlaceholder = isValidImageSrc(productImagePlaceholderSetting)
+    ? productImagePlaceholderSetting.trim()
+    : '';
 
   const relatedProductsMode = experienceConfig.relatedProductsMode;
   const relatedProductsPerPage = experienceConfig.relatedProductsPerPage;
@@ -486,6 +542,8 @@ export default function ProductDetailPage({ params }: PageProps) {
   const [replyDrafts, setReplyDrafts] = useState<Record<string, { content: string; email: string; name: string }>>({});
   const [replySubmittingId, setReplySubmittingId] = useState<string | null>(null);
   const [likingIds, setLikingIds] = useState<Set<string>>(new Set());
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const { frame } = useProductFrameConfig();
 
   useEffect(() => {
     setRelatedPage(1);
@@ -750,6 +808,23 @@ export default function ProductDetailPage({ params }: PageProps) {
       onReplySubmit={handleSubmitReply}
     />
   ) : null;
+  const supplementalContent = supplementalTemplate
+    ? {
+        preContent: supplementalTemplate.preContent,
+        postContent: supplementalTemplate.postContent,
+        faqItems: supplementalTemplate.faqItems,
+      }
+    : null;
+  const canOpenLightbox = experienceConfig.enableImageLightbox && lightboxImages.length > 0;
+
+  const handleOpenLightbox = (index: number) => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    setLightboxIndex(Math.min(Math.max(index, 0), Math.max(lightboxImages.length - 1, 0)));
+  };
+
+  const handleCloseLightbox = () => setLightboxIndex(null);
 
   if (product === undefined) {
     return <ProductDetailSkeleton tokens={tokens} />;
@@ -791,6 +866,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           product={productData}
           brandColor={brandColor}
           tokens={tokens}
+          enableImageLightbox={experienceConfig.enableImageLightbox}
+          onOpenLightbox={handleOpenLightbox}
           relatedProducts={relatedProducts}
           enabledFields={enabledFields}
           variants={variants ?? []}
@@ -805,6 +882,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           showShare={experienceConfig.showShare}
           showBuyNow={canUseCartActions ? canBuyNow : true}
           buyNowLabel={buyNowLabel}
+          imageAspectRatio={experienceConfig.imageAspectRatio}
+          showAllProductImagesSection={experienceConfig.showAllProductImagesSection}
           requireStockForBuyNow={requireStockForBuyNow}
           isWishlisted={isWishlisted}
           onToggleWishlist={handleWishlistToggle}
@@ -812,6 +891,7 @@ export default function ProductDetailPage({ params }: PageProps) {
           onAddToCart={handleAddToCart}
           onBuyNow={handlePrimaryAction}
           commentsSection={commentsSection}
+          supplementalContent={supplementalContent}
           relatedProductsMode={relatedProductsMode}
           relatedProductsPerPage={relatedProductsPerPage}
           relatedProductsPage={relatedPage}
@@ -820,6 +900,9 @@ export default function ProductDetailPage({ params }: PageProps) {
           relatedLoadMoreRef={relatedLoadMoreRef}
           relatedInfiniteStatus={relatedInfiniteStatus}
           relatedIsLoading={relatedIsLoading}
+          routeMode={routeMode}
+          categorySlugMap={categorySlugMap}
+          productImagePlaceholder={productImagePlaceholder}
         />
       )}
       {experienceConfig.layoutStyle === 'modern' && (
@@ -827,6 +910,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           product={productData}
           brandColor={brandColor}
           tokens={tokens}
+          enableImageLightbox={experienceConfig.enableImageLightbox}
+          onOpenLightbox={handleOpenLightbox}
           relatedProducts={relatedProducts}
           enabledFields={enabledFields}
           variants={variants ?? []}
@@ -841,6 +926,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           showShare={experienceConfig.showShare}
           showBuyNow={canUseCartActions ? canBuyNow : true}
           buyNowLabel={buyNowLabel}
+          imageAspectRatio={experienceConfig.imageAspectRatio}
+          showAllProductImagesSection={experienceConfig.showAllProductImagesSection}
           requireStockForBuyNow={requireStockForBuyNow}
           heroStyle={experienceConfig.heroStyle}
           isWishlisted={isWishlisted}
@@ -849,6 +936,7 @@ export default function ProductDetailPage({ params }: PageProps) {
           onAddToCart={handleAddToCart}
           onBuyNow={handlePrimaryAction}
           commentsSection={commentsSection}
+          supplementalContent={supplementalContent}
           relatedProductsMode={relatedProductsMode}
           relatedProductsPerPage={relatedProductsPerPage}
           relatedProductsPage={relatedPage}
@@ -857,6 +945,9 @@ export default function ProductDetailPage({ params }: PageProps) {
           relatedLoadMoreRef={relatedLoadMoreRef}
           relatedInfiniteStatus={relatedInfiniteStatus}
           relatedIsLoading={relatedIsLoading}
+          routeMode={routeMode}
+          categorySlugMap={categorySlugMap}
+          productImagePlaceholder={productImagePlaceholder}
         />
       )}
       {experienceConfig.layoutStyle === 'minimal' && (
@@ -864,6 +955,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           product={productData}
           brandColor={brandColor}
           tokens={tokens}
+          enableImageLightbox={experienceConfig.enableImageLightbox}
+          onOpenLightbox={handleOpenLightbox}
           relatedProducts={relatedProducts}
           enabledFields={enabledFields}
           variants={variants ?? []}
@@ -878,6 +971,8 @@ export default function ProductDetailPage({ params }: PageProps) {
           showShare={experienceConfig.showShare}
           showBuyNow={canUseCartActions ? canBuyNow : true}
           buyNowLabel={buyNowLabel}
+          imageAspectRatio={experienceConfig.imageAspectRatio}
+          showAllProductImagesSection={experienceConfig.showAllProductImagesSection}
           requireStockForBuyNow={requireStockForBuyNow}
           contentWidth={experienceConfig.contentWidth}
           isWishlisted={isWishlisted}
@@ -886,6 +981,7 @@ export default function ProductDetailPage({ params }: PageProps) {
           onAddToCart={handleAddToCart}
           onBuyNow={handlePrimaryAction}
           commentsSection={commentsSection}
+          supplementalContent={supplementalContent}
           relatedProductsMode={relatedProductsMode}
           relatedProductsPerPage={relatedProductsPerPage}
           relatedProductsPage={relatedPage}
@@ -894,8 +990,20 @@ export default function ProductDetailPage({ params }: PageProps) {
           relatedLoadMoreRef={relatedLoadMoreRef}
           relatedInfiniteStatus={relatedInfiniteStatus}
           relatedIsLoading={relatedIsLoading}
+          routeMode={routeMode}
+          categorySlugMap={categorySlugMap}
+          productImagePlaceholder={productImagePlaceholder}
         />
       )}
+      <ProductImageLightbox
+        images={lightboxImages}
+        currentIndex={lightboxIndex ?? 0}
+        open={canOpenLightbox && lightboxIndex !== null}
+        onClose={handleCloseLightbox}
+        onIndexChange={setLightboxIndex}
+        frame={frame}
+        fallbackSrc={productImagePlaceholder}
+      />
     </>
   );
 }
@@ -925,6 +1033,7 @@ interface RelatedProduct {
   _id: Id<"products">;
   name: string;
   slug: string;
+  categoryId: Id<"productCategories">;
   price: number;
   salePrice?: number;
   image?: string;
@@ -941,10 +1050,18 @@ interface CommentData {
   rating?: number;
 }
 
+interface ProductSupplementalContentData {
+  preContent?: string;
+  postContent?: string;
+  faqItems: Array<{ id: string; question: string; answer: string; order: number }>;
+}
+
 interface StyleProps {
   product: ProductData;
   brandColor: string;
   tokens: ProductDetailColors;
+  enableImageLightbox: boolean;
+  onOpenLightbox: (index: number) => void;
   relatedProducts: RelatedProduct[];
   relatedProductsMode: RelatedProductsMode;
   relatedProductsPerPage: number;
@@ -959,6 +1076,10 @@ interface StyleProps {
   variantOptions: VariantSelectorOption[];
   saleMode: ProductsSaleMode;
   commentsSection?: React.ReactNode;
+  supplementalContent: ProductSupplementalContentData | null;
+  routeMode: 'unified' | 'namespace';
+  categorySlugMap: Map<string, string>;
+  productImagePlaceholder: string;
 }
 
 interface ExperienceBlocksProps {
@@ -969,6 +1090,8 @@ interface ExperienceBlocksProps {
   showShare: boolean;
   showBuyNow: boolean;
   buyNowLabel: string;
+  imageAspectRatio: ProductImageAspectRatio;
+  showAllProductImagesSection: boolean;
   requireStockForBuyNow: boolean;
   isWishlisted: boolean;
   onToggleWishlist: () => void;
@@ -1015,6 +1138,46 @@ function isValidImageSrc(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+type ProductImageWithFallbackProps = Omit<React.ComponentProps<typeof Image>, 'src' | 'onError'> & {
+  src?: string | null;
+  fallbackSrc?: string | null;
+  placeholderLabel?: string;
+};
+
+function ProductImageWithFallback({
+  src,
+  fallbackSrc,
+  placeholderLabel = 'Ảnh sản phẩm',
+  ...props
+}: ProductImageWithFallbackProps) {
+  const normalizedSrc = isValidImageSrc(src) ? src.trim() : null;
+  const normalizedFallback = isValidImageSrc(fallbackSrc) ? fallbackSrc.trim() : null;
+  const [currentSrc, setCurrentSrc] = useState<string | null>(normalizedSrc ?? normalizedFallback);
+
+  useEffect(() => {
+    setCurrentSrc(normalizedSrc ?? normalizedFallback);
+  }, [normalizedSrc, normalizedFallback]);
+
+  if (!currentSrc) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-100 text-slate-400 dark:bg-slate-900/60">
+        <Package size={40} strokeWidth={1.5} />
+        <span className="text-xs font-medium">{placeholderLabel}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      {...props}
+      src={currentSrc}
+      onError={() => {
+        setCurrentSrc(currentSrc !== normalizedFallback ? normalizedFallback : null);
+      }}
+    />
+  );
+}
+
 function buildProductImages(product: { image?: unknown; images?: unknown[] }): string[] {
   const images = new Set<string>();
   if (isValidImageSrc(product.image)) {
@@ -1030,23 +1193,125 @@ function buildProductImages(product: { image?: unknown; images?: unknown[] }): s
   return Array.from(images);
 }
 
-function BlurredProductImage({ src, alt, sizes }: { src?: string | null; alt: string; sizes?: string }) {
-  if (!isValidImageSrc(src)) {
-    return null;
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handleChange = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function preloadNeighborImages(images: string[], centerIndex: number) {
+  if (typeof window === 'undefined' || images.length === 0) {
+    return;
   }
+
+  const candidates = [images[centerIndex], images[centerIndex - 1], images[centerIndex + 1]];
+  candidates.forEach((candidate) => {
+    if (!isValidImageSrc(candidate)) {
+      return;
+    }
+    const image = new window.Image();
+    image.src = candidate;
+  });
+}
+
+function BlurredProductImage({ src, alt, sizes, fallbackSrc }: { src?: string | null; alt: string; sizes?: string; fallbackSrc?: string | null }) {
+  const normalizedSrc = isValidImageSrc(src) ? src.trim() : null;
+  const normalizedFallback = isValidImageSrc(fallbackSrc) ? fallbackSrc.trim() : null;
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const { frame } = useProductFrameConfig();
+  const [currentSrc, setCurrentSrc] = useState<string | null>(normalizedSrc ?? normalizedFallback);
+  const [incomingSrc, setIncomingSrc] = useState<string | null>(null);
+  const [incomingVisible, setIncomingVisible] = useState(false);
+
+  useEffect(() => {
+    if (!normalizedSrc) {
+      setCurrentSrc(normalizedFallback);
+      setIncomingSrc(null);
+      setIncomingVisible(false);
+      return;
+    }
+
+    if (!currentSrc) {
+      setCurrentSrc(normalizedSrc);
+      return;
+    }
+
+    if (currentSrc === normalizedSrc) {
+      return;
+    }
+
+    if (prefersReducedMotion) {
+      setCurrentSrc(normalizedSrc);
+      setIncomingSrc(null);
+      setIncomingVisible(false);
+      return;
+    }
+
+    setIncomingSrc(normalizedSrc);
+    setIncomingVisible(false);
+
+    const frame = window.requestAnimationFrame(() => setIncomingVisible(true));
+    const timeout = window.setTimeout(() => {
+      setCurrentSrc(normalizedSrc);
+      setIncomingSrc(null);
+      setIncomingVisible(false);
+    }, 160);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [currentSrc, normalizedFallback, normalizedSrc, prefersReducedMotion]);
+
+  if (!currentSrc) {
+    return <ProductImageWithFallback src={null} fallbackSrc={normalizedFallback} alt={alt} fill sizes={sizes} className="object-contain" />;
+  }
+
   return (
     <>
       <div
         className="absolute inset-0 scale-110"
         style={{
-          backgroundImage: `url(${src})`,
+          backgroundImage: `url(${currentSrc})`,
           backgroundPosition: 'center',
           backgroundSize: 'cover',
           filter: 'blur(24px)',
         }}
       />
       <div className="absolute inset-0 bg-black/10" />
-      <Image src={src} alt={alt} fill sizes={sizes} className="relative z-10 object-contain" />
+      <ProductImageWithFallback mode="primary" src={currentSrc} fallbackSrc={normalizedFallback} alt={alt} fill sizes={sizes} className="relative z-10 object-contain" />
+
+      {incomingSrc && (
+        <div className={`absolute inset-0 transition-opacity duration-150 ease-out ${incomingVisible ? 'opacity-100' : 'opacity-0'}`}>
+          <div
+            className="absolute inset-0 scale-110"
+            style={{
+              backgroundImage: `url(${incomingSrc})`,
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              filter: 'blur(24px)',
+            }}
+          />
+          <div className="absolute inset-0 bg-black/10" />
+          <ProductImageWithFallback mode="primary" src={incomingSrc} fallbackSrc={normalizedFallback} alt={alt} fill sizes={sizes} className="relative z-10 object-contain" />
+        </div>
+      )}
+      <div className="absolute inset-0 pointer-events-none z-20">
+        <ProductImageFrameOverlay frame={frame} />
+      </div>
     </>
   );
 }
@@ -1070,21 +1335,31 @@ function HighlightsGrid({ highlights, tokens }: { highlights: ClassicHighlightIt
   );
 }
 
-function ExpandableDescription({ content, className, style, buttonStyle }: { content: string; className?: string; style?: React.CSSProperties; buttonStyle?: React.CSSProperties }) {
+function ExpandableProductDescriptionBlock({
+  children,
+  buttonStyle,
+}: {
+  children: React.ReactNode;
+  buttonStyle?: React.CSSProperties;
+}) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
 
   useEffect(() => {
-    if (expanded) {
-      return;
-    }
     const element = contentRef.current;
     if (!element) {
       return;
     }
+    const getCollapsedMaxHeight = () => {
+      if (typeof window === 'undefined') {
+        return 640;
+      }
+      return window.matchMedia('(min-width: 768px)').matches ? 860 : 640;
+    };
     const checkOverflow = () => {
-      setCanExpand(element.scrollHeight > element.clientHeight + 1);
+      const maxHeight = getCollapsedMaxHeight();
+      setCanExpand(element.scrollHeight > maxHeight + 1);
     };
     checkOverflow();
     if (typeof ResizeObserver === 'undefined') {
@@ -1093,21 +1368,20 @@ function ExpandableDescription({ content, className, style, buttonStyle }: { con
     const observer = new ResizeObserver(checkOverflow);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [expanded, content]);
+  }, [children]);
 
   return (
     <div>
       <div
         ref={contentRef}
-        className={`${expanded ? '' : 'line-clamp-4 md:line-clamp-5'}`.trim()}
-        style={style}
+        className={`${expanded ? '' : 'max-h-[640px] overflow-hidden md:max-h-[860px]'}`.trim()}
       >
-        <RichContent content={content} className={className} />
+        {children}
       </div>
-      {canExpand && (
+      {(canExpand || expanded) && (
         <button
           type="button"
-          className="mt-2 text-sm font-medium"
+          className="mt-3 text-sm font-medium"
           style={buttonStyle}
           onClick={() => setExpanded((prev) => !prev)}
         >
@@ -1118,16 +1392,52 @@ function ExpandableDescription({ content, className, style, buttonStyle }: { con
   );
 }
 
+function ProductDescriptionImages({
+  images,
+  tokens,
+  frameAspectRatio,
+  fallbackSrc,
+}: {
+  images: string[];
+  tokens: ProductDetailColors;
+  frameAspectRatio: string;
+  fallbackSrc?: string | null;
+}) {
+  const { frame } = useProductFrameConfig();
+  if (images.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-6 border-t pt-6" style={{ borderColor: tokens.divider }}>
+      <div className="space-y-4">
+        {images.map((image, index) => (
+          <div
+            key={`${image}-${index}`}
+            className="relative w-full overflow-hidden rounded-2xl"
+            style={{ aspectRatio: frameAspectRatio, backgroundColor: tokens.surfaceMuted }}
+          >
+            <ProductImageWithFallback mode="primary" src={image} fallbackSrc={fallbackSrc} alt={`Ảnh sản phẩm ${index + 1}`} fill sizes="100vw" className="object-contain" />
+            <ProductImageFrameOverlay frame={frame} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type MobileImageCarouselProps = {
   images: string[];
   selectedIndex: number;
   onSelect: (index: number) => void;
   alt: string;
+  fallbackSrc?: string | null;
 };
 
-function MobileImageCarousel({ images, selectedIndex, onSelect, alt }: MobileImageCarouselProps) {
+function MobileImageCarousel({ images, selectedIndex, onSelect, alt, fallbackSrc }: MobileImageCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { frame } = useProductFrameConfig();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1178,7 +1488,8 @@ function MobileImageCarousel({ images, selectedIndex, onSelect, alt }: MobileIma
     >
       {images.map((image, index) => (
         <div key={`${image}-${index}`} className="relative h-full w-full shrink-0 snap-center">
-          <Image src={image} alt={`${alt} ${index + 1}`} fill sizes="100vw" className="object-contain" />
+          <ProductImageWithFallback mode="primary" src={image} fallbackSrc={fallbackSrc} alt={`${alt} ${index + 1}`} fill sizes="100vw" className="object-contain" />
+          <ProductImageFrameOverlay frame={frame} />
         </div>
       ))}
     </div>
@@ -1192,10 +1503,12 @@ type ThumbnailRailProps = {
   orientation: 'horizontal' | 'vertical';
   visibleSlots: number;
   tokens: ProductDetailColors;
+  thumbnailAspectRatio: string;
   className?: string;
   listClassName?: string;
   itemClassName?: string;
   inactiveClassName?: string;
+  fallbackSrc?: string | null;
 };
 
 function ThumbnailRail({
@@ -1205,11 +1518,14 @@ function ThumbnailRail({
   orientation,
   visibleSlots,
   tokens,
+  thumbnailAspectRatio,
   className,
   listClassName,
   itemClassName,
   inactiveClassName,
+  fallbackSrc,
 }: ThumbnailRailProps) {
+  const { frame } = useProductFrameConfig();
   const [startIndex, setStartIndex] = useState(0);
   const hasOverflow = images.length > visibleSlots;
   const maxStartIndex = Math.max(0, images.length - visibleSlots);
@@ -1244,12 +1560,14 @@ function ThumbnailRail({
     return null;
   }
 
-  const canScrollPrev = hasOverflow && startIndex > 0;
-  const canScrollNext = hasOverflow && startIndex < maxStartIndex;
+  const canScrollPrev = hasOverflow && selectedIndex > 0;
+  const canScrollNext = hasOverflow && selectedIndex < images.length - 1;
   const visibleImages = hasOverflow ? images.slice(startIndex, startIndex + visibleSlots) : images;
   const railClassName = `${isVertical ? 'flex flex-col items-center gap-2' : 'flex items-center gap-2'} ${className ?? ''}`.trim();
   const listClass = `${isVertical ? 'flex flex-col gap-2' : 'flex gap-2'} ${listClassName ?? ''}`.trim();
   const arrowClassName = 'h-9 w-9 rounded-full border flex items-center justify-center transition-colors disabled:opacity-40';
+  const handlePrev = () => onSelect(Math.max(0, selectedIndex - 1));
+  const handleNext = () => onSelect(Math.min(images.length - 1, selectedIndex + 1));
 
   return (
     <div className={railClassName}>
@@ -1258,7 +1576,7 @@ function ThumbnailRail({
           type="button"
           aria-label={isVertical ? 'Ảnh trước' : 'Ảnh trước'}
           disabled={!canScrollPrev}
-          onClick={() => setStartIndex((prev) => Math.max(0, prev - 1))}
+          onClick={handlePrev}
           className={arrowClassName}
           style={{ borderColor: tokens.thumbnailBorder, color: tokens.thumbnailBorderActive, backgroundColor: tokens.surface }}
         >
@@ -1275,10 +1593,11 @@ function ThumbnailRail({
               key={`${img}-${actualIndex}`}
               type="button"
               onClick={() => onSelect(actualIndex)}
-              className={`${itemClassName ?? 'aspect-square w-20 rounded-lg'} overflow-hidden border-2 transition-colors ${isActive ? '' : inactiveClassName ?? ''}`.trim()}
-              style={{ borderColor: isActive ? tokens.thumbnailBorderActive : tokens.thumbnailBorder }}
+              className={`${itemClassName ?? 'w-20 rounded-lg'} relative overflow-hidden border-2 transition-colors ${isActive ? '' : inactiveClassName ?? ''}`.trim()}
+              style={{ aspectRatio: thumbnailAspectRatio, borderColor: isActive ? tokens.thumbnailBorderActive : tokens.thumbnailBorder }}
             >
-              <Image src={img} alt="" width={80} height={80} className="object-contain w-full h-full" />
+              <ProductImageWithFallback mode="thumb" src={img} fallbackSrc={fallbackSrc} alt="" width={80} height={80} className="object-contain w-full h-full" />
+              <ProductImageFrameOverlay frame={frame} />
             </button>
           );
         })}
@@ -1289,7 +1608,7 @@ function ThumbnailRail({
           type="button"
           aria-label={isVertical ? 'Ảnh kế tiếp' : 'Ảnh kế tiếp'}
           disabled={!canScrollNext}
-          onClick={() => setStartIndex((prev) => Math.min(maxStartIndex, prev + 1))}
+          onClick={handleNext}
           className={arrowClassName}
           style={{ borderColor: tokens.thumbnailBorder, color: tokens.thumbnailBorderActive, backgroundColor: tokens.surface }}
         >
@@ -1338,6 +1657,59 @@ const findExactVariant = (variants: ProductVariant[], selection: VariantSelectio
     variant.optionValues.every((optionValue) => selection[optionValue.optionId] === optionValue.valueId)
   ) ?? null;
 
+const stripHtmlTags = (value?: string) =>
+  (value ?? '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+function ProductSupplementalFaqAccordion({
+  faqItems,
+  tokens,
+}: {
+  faqItems: ProductSupplementalContentData['faqItems'];
+  tokens: ProductDetailColors;
+}) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const sortedFaqItems = sortSupplementalFaqItems(faqItems ?? []).filter((item) => item.question?.trim() && item.answer?.trim());
+
+  if (sortedFaqItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border px-5 py-5" style={{ borderColor: tokens.border, backgroundColor: tokens.surface }}>
+      <div className="space-y-3">
+        {sortedFaqItems.map((item, index) => {
+          const isOpen = openIndex === index;
+          return (
+            <div key={item.id} className="overflow-hidden rounded-xl border" style={{ borderColor: tokens.divider, backgroundColor: tokens.surfaceMuted }}>
+              <button
+                type="button"
+                onClick={() => setOpenIndex((prev) => (prev === index ? null : index))}
+                className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:opacity-90"
+                style={{ color: tokens.headingColor }}
+                aria-expanded={isOpen}
+              >
+                <span className="font-medium">{item.question}</span>
+                <ChevronDown size={18} className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`.trim()} />
+              </button>
+              <div className={`grid transition-all duration-200 ease-in-out ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`.trim()}>
+                <div className="overflow-hidden">
+                  <div className="border-t px-4 py-4 text-sm whitespace-pre-line" style={{ borderColor: tokens.divider, color: tokens.bodyText }}>
+                    {stripHtmlTags(item.answer)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RatingInline({ summary, tokens }: { summary: RatingSummary; tokens: ProductDetailColors }) {
   if (!summary.average || summary.count <= 0) {
     return null;
@@ -1368,6 +1740,8 @@ function ClassicStyle({
   product,
   brandColor,
   tokens,
+  enableImageLightbox,
+  onOpenLightbox,
   relatedProducts,
   relatedProductsMode,
   relatedProductsPerPage,
@@ -1390,6 +1764,8 @@ function ClassicStyle({
   showShare,
   showBuyNow,
   buyNowLabel,
+  imageAspectRatio,
+  showAllProductImagesSection,
   requireStockForBuyNow,
   isWishlisted,
   onToggleWishlist,
@@ -1397,17 +1773,22 @@ function ClassicStyle({
   onAddToCart,
   onBuyNow,
   commentsSection,
+  supplementalContent,
+  routeMode,
+  categorySlugMap,
+  productImagePlaceholder,
 }: ClassicStyleProps) {
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<VariantSelectionMap>({});
 
   const hasVariants = Boolean(product.hasVariants && variants.length > 0 && variantOptions.length > 0);
+  const imageFrame = getProductImageFrameConfig(imageAspectRatio, 'classic');
+  const mainImageFrameStyle: React.CSSProperties = { aspectRatio: imageFrame.frameAspectRatio };
   const resolvedDescription = useMemo(() => resolveProductContent(product), [product]);
 
   useEffect(() => {
     if (!hasVariants) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedOptions({});
       return;
     }
@@ -1446,17 +1827,41 @@ function ClassicStyle({
   const showSku = enabledFields.has('sku');
 
   const images = buildProductImages(product);
-  const safeSelectedImage = Math.min(selectedImage, Math.max(images.length - 1, 0));
+  const displayImages = images.length > 0 ? images : [productImagePlaceholder];
+  const safeSelectedImage = Math.min(selectedImage, Math.max(displayImages.length - 1, 0));
+  const canOpenLightbox = enableImageLightbox && images.length > 0;
+
+  const handleOpenLightbox = () => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    onOpenLightbox(safeSelectedImage);
+  };
+
+  const handleLightboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpenLightbox();
+    }
+  };
 
   useEffect(() => {
-    if (images.length === 0 && selectedImage !== 0) {
+    if (displayImages.length === 0 && selectedImage !== 0) {
       setSelectedImage(0);
       return;
     }
-    if (images.length > 0 && selectedImage >= images.length) {
-      setSelectedImage(images.length - 1);
+    if (displayImages.length > 0 && selectedImage >= displayImages.length) {
+      setSelectedImage(displayImages.length - 1);
     }
-  }, [images.length, selectedImage]);
+  }, [displayImages.length, selectedImage]);
+
+  useEffect(() => {
+    preloadNeighborImages(displayImages, safeSelectedImage);
+  }, [displayImages, safeSelectedImage]);
+
   const basePrice = selectedVariant?.price ?? product.price;
   const salePrice = selectedVariant ? selectedVariant.salePrice : product.salePrice;
   const isRangeFromVariant = Boolean(product.hasVariants && !selectedVariant);
@@ -1514,32 +1919,36 @@ function ClassicStyle({
         <div className="lg:grid lg:grid-cols-2 lg:gap-12">
           {/* Product Images */}
           <div className="mb-6 lg:mb-0">
-            <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 md:mb-4" style={{ backgroundColor: tokens.surfaceMuted }}>
-              {images.length > 0 ? (
-                <>
-                  <div className="h-full w-full md:hidden">
-                    <MobileImageCarousel
-                      images={images}
-                      selectedIndex={safeSelectedImage}
-                      onSelect={setSelectedImage}
-                      alt={product.name}
-                    />
-                  </div>
-                  <div className="hidden md:block h-full w-full">
-                    <BlurredProductImage src={images[safeSelectedImage]} alt={product.name} sizes="(max-width: 1024px) 100vw, 50vw" />
-                  </div>
-                </>
-              ) : (
-                <div className="w-full h-full flex items-center justify-center"><Package size={64} style={{ color: tokens.emptyStateIcon }} /></div>
-              )}
-              {images.length > 1 && (
-                <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
-                  {safeSelectedImage + 1}/{images.length}
-                </span>
-              )}
-              {showSalePrice && priceDisplay.comparePrice && (
-                <span className="absolute top-3 left-3 px-3 py-1.5 text-sm font-bold rounded-lg" style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>-{discountPercent}%</span>
-              )}
+            <div className={`${imageFrame.frameWidthClassName} mb-3 md:mb-4`}>
+              <div
+                className={`relative rounded-2xl overflow-hidden ${canOpenLightbox ? 'cursor-zoom-in' : ''}`.trim()}
+                style={{ ...mainImageFrameStyle, backgroundColor: tokens.surfaceMuted }}
+                role={canOpenLightbox ? 'button' : undefined}
+                tabIndex={canOpenLightbox ? 0 : -1}
+                onClick={canOpenLightbox ? handleOpenLightbox : undefined}
+                onKeyDown={handleLightboxKeyDown}
+              >
+                <div className="h-full w-full md:hidden">
+                  <MobileImageCarousel
+                    images={displayImages}
+                    selectedIndex={safeSelectedImage}
+                    onSelect={setSelectedImage}
+                    alt={product.name}
+                    fallbackSrc={productImagePlaceholder}
+                  />
+                </div>
+                <div className="hidden md:block h-full w-full">
+                  <BlurredProductImage src={displayImages[safeSelectedImage]} fallbackSrc={productImagePlaceholder} alt={product.name} sizes="(max-width: 1024px) 100vw, 50vw" />
+                </div>
+                {images.length > 1 && (
+                  <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
+                    {safeSelectedImage + 1}/{images.length}
+                  </span>
+                )}
+                {showSalePrice && priceDisplay.comparePrice && (
+                  <span className="absolute top-3 left-3 px-3 py-1.5 text-sm font-bold rounded-lg" style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>-{discountPercent}%</span>
+                )}
+              </div>
             </div>
             {images.length > 1 && (
               <>
@@ -1551,7 +1960,9 @@ function ClassicStyle({
                     orientation="horizontal"
                     visibleSlots={6}
                     tokens={tokens}
-                    itemClassName="aspect-square w-20 rounded-lg"
+                    thumbnailAspectRatio={imageFrame.thumbnailAspectRatio}
+                    itemClassName="w-20 rounded-lg"
+                    fallbackSrc={productImagePlaceholder}
                   />
                 </div>
               </>
@@ -1640,8 +2051,14 @@ function ClassicStyle({
                 )}
                 {showBuyNow && (
                   <button
-                    className={`py-3.5 px-8 rounded-xl font-semibold flex items-center justify-center gap-2 border transition-all ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    style={{ borderColor: tokens.ctaSecondaryBorder, color: tokens.ctaSecondaryText }}
+                    className={`py-3.5 px-8 rounded-xl font-semibold flex items-center justify-center gap-2 border transition-all ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer bg-[var(--cta-secondary-bg)] shadow-sm hover:bg-[var(--cta-secondary-hover-bg)] hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cta-secondary-ring)]'}`}
+                    style={{
+                      borderColor: tokens.ctaSecondaryBorder,
+                      color: tokens.ctaSecondaryText,
+                      '--cta-secondary-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-hover-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-ring': tokens.inputRing,
+                    } as React.CSSProperties}
                     disabled={buyNowDisabled}
                     onClick={() => { if (!buyNowDisabled) { onBuyNow(quantity, selectedVariant?._id); } }}
                   >
@@ -1696,17 +2113,43 @@ function ClassicStyle({
               </div>
             )}
 
-            {showDescription && resolvedDescription && (
+            {(showDescription && resolvedDescription) || showAllProductImagesSection || supplementalContent?.preContent || supplementalContent?.postContent ? (
               <div className="border-t pt-6" style={{ borderColor: tokens.divider }}>
-                <h3 className="font-semibold mb-4" style={{ color: tokens.headingColor }}>Mô tả sản phẩm</h3>
-                <ExpandableDescription
-                  content={resolvedDescription}
-                  className="prose prose-sm max-w-none"
-                  style={{ color: tokens.bodyText }}
-                  buttonStyle={{ color: tokens.primary }}
-                />
+                <ExpandableProductDescriptionBlock buttonStyle={{ color: tokens.primary }}>
+                  {supplementalContent?.preContent ? (
+                    <RichContent
+                      content={toRichTextContent(supplementalContent.preContent)}
+                      className="max-w-none"
+                      style={{ color: tokens.bodyText }}
+                    />
+                  ) : null}
+                  {showDescription && resolvedDescription && (
+                    <RichContent
+                      content={resolvedDescription}
+                      className="max-w-none"
+                      style={{ color: tokens.bodyText }}
+                    />
+                  )}
+                  {supplementalContent?.postContent ? (
+                    <RichContent
+                      content={toRichTextContent(supplementalContent.postContent)}
+                      className="max-w-none"
+                      style={{ color: tokens.bodyText }}
+                    />
+                  ) : null}
+                  {showAllProductImagesSection && (
+                    <ProductDescriptionImages
+                      images={images}
+                      tokens={tokens}
+                      frameAspectRatio={imageFrame.frameAspectRatio}
+                      fallbackSrc={productImagePlaceholder}
+                    />
+                  )}
+                </ExpandableProductDescriptionBlock>
               </div>
-            )}
+            ) : null}
+
+            <ProductSupplementalFaqAccordion faqItems={supplementalContent?.faqItems ?? []} tokens={tokens} />
           </div>
         </div>
 
@@ -1717,6 +2160,7 @@ function ClassicStyle({
           categorySlug={product.categorySlug}
           brandColor={brandColor}
           tokens={tokens}
+          imageAspectRatio={imageAspectRatio}
           showPrice={enabledFields.has('price') || enabledFields.size === 0}
           showSalePrice={enabledFields.has('salePrice')}
           saleMode={saleMode}
@@ -1728,6 +2172,9 @@ function ClassicStyle({
           loadMoreRef={relatedLoadMoreRef}
           infiniteStatus={relatedInfiniteStatus}
           isLoading={relatedIsLoading}
+          routeMode={routeMode}
+          categorySlugMap={categorySlugMap}
+          productImagePlaceholder={productImagePlaceholder}
         />
 
         <div className="mt-12 pt-8 border-t" style={{ borderColor: tokens.divider }}>
@@ -1747,6 +2194,8 @@ function ModernStyle({
   product,
   brandColor,
   tokens,
+  enableImageLightbox,
+  onOpenLightbox,
   relatedProducts,
   relatedProductsMode,
   relatedProductsPerPage,
@@ -1768,6 +2217,8 @@ function ModernStyle({
   showWishlist,
   showBuyNow,
   buyNowLabel,
+  imageAspectRatio,
+  showAllProductImagesSection,
   requireStockForBuyNow,
   heroStyle,
   isWishlisted,
@@ -1775,6 +2226,10 @@ function ModernStyle({
   onAddToCart,
   onBuyNow,
   commentsSection,
+  supplementalContent,
+  routeMode,
+  categorySlugMap,
+  productImagePlaceholder,
 }: StyleProps & ExperienceBlocksProps & HighlightBlockProps & { heroStyle: ModernHeroStyle }) {
   const [quantity, setQuantity] = useState(1);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -1785,7 +2240,6 @@ function ModernStyle({
 
   useEffect(() => {
     if (!hasVariants) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedOptions({});
       return;
     }
@@ -1823,17 +2277,43 @@ function ModernStyle({
   const showDescription = enabledFields.has('description');
 
   const images = buildProductImages(product);
-  const safeSelectedImageIndex = Math.min(selectedImageIndex, Math.max(images.length - 1, 0));
+  const displayImages = images.length > 0 ? images : [productImagePlaceholder];
+  const imageFrame = getProductImageFrameConfig(imageAspectRatio, 'modern');
+  const mainImageFrameStyle: React.CSSProperties = { aspectRatio: imageFrame.frameAspectRatio };
+  const safeSelectedImageIndex = Math.min(selectedImageIndex, Math.max(displayImages.length - 1, 0));
+  const canOpenLightbox = enableImageLightbox && images.length > 0;
+
+  const handleOpenLightbox = () => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    onOpenLightbox(safeSelectedImageIndex);
+  };
+
+  const handleLightboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpenLightbox();
+    }
+  };
 
   useEffect(() => {
-    if (images.length === 0 && selectedImageIndex !== 0) {
+    if (displayImages.length === 0 && selectedImageIndex !== 0) {
       setSelectedImageIndex(0);
       return;
     }
-    if (images.length > 0 && selectedImageIndex >= images.length) {
-      setSelectedImageIndex(images.length - 1);
+    if (displayImages.length > 0 && selectedImageIndex >= displayImages.length) {
+      setSelectedImageIndex(displayImages.length - 1);
     }
-  }, [images.length, selectedImageIndex]);
+  }, [displayImages.length, selectedImageIndex]);
+
+  useEffect(() => {
+    preloadNeighborImages(displayImages, safeSelectedImageIndex);
+  }, [displayImages, safeSelectedImageIndex]);
+
   const basePrice = selectedVariant?.price ?? product.price;
   const salePrice = selectedVariant ? selectedVariant.salePrice : product.salePrice;
   const isRangeFromVariant = Boolean(product.hasVariants && !selectedVariant);
@@ -1863,10 +2343,10 @@ function ModernStyle({
     : { borderColor: tokens.border, backgroundColor: tokens.surface };
 
   const heroImageWrapperClass = heroStyle === 'split'
-    ? 'relative aspect-square flex items-center justify-center p-6'
+    ? 'relative flex items-center justify-center p-6'
     : heroStyle === 'minimal'
-      ? 'relative aspect-square flex items-center justify-center p-3'
-      : 'relative aspect-square flex items-center justify-center p-6';
+      ? 'relative flex items-center justify-center p-3'
+      : 'relative flex items-center justify-center p-6';
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: tokens.surface }}>
@@ -1915,95 +2395,91 @@ function ModernStyle({
             {heroStyle === 'split' ? (
               <div className={`overflow-hidden ${heroContainerClass}`} style={heroContainerStyle}>
                 <div className="grid md:grid-cols-2 gap-3 items-center p-3 md:p-5">
-                  <div className="relative aspect-square rounded-xl flex items-center justify-center overflow-hidden" style={{ backgroundColor: tokens.surfaceMuted }}>
-                    {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
-                      <span
-                        className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                        style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}
-                      >
-                        -{discountPercent}%
-                      </span>
-                    )}
-                    {images[safeSelectedImageIndex] ? (
-                      <>
-                        <div className="h-full w-full md:hidden">
-                          <MobileImageCarousel
-                            images={images}
-                            selectedIndex={safeSelectedImageIndex}
-                            onSelect={setSelectedImageIndex}
-                            alt={product.name}
-                          />
-                        </div>
-                        <div className="hidden md:block h-full w-full">
-                          <BlurredProductImage
-                            src={images[safeSelectedImageIndex]}
-                            alt={product.name}
-                            sizes="(max-width: 1024px) 100vw, 50vw"
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-center">
-                        <div className="rounded-lg w-48 h-48 mx-auto mb-3" style={{ backgroundColor: tokens.surfaceSoft }} />
-                        <p className="text-sm" style={{ color: tokens.softText }}>Chưa có hình ảnh sản phẩm</p>
+                  <div className={imageFrame.frameWidthClassName}>
+                    <div
+                      className={`relative rounded-xl flex items-center justify-center overflow-hidden ${canOpenLightbox ? 'cursor-zoom-in' : ''}`.trim()}
+                      style={{ ...mainImageFrameStyle, backgroundColor: tokens.surfaceMuted }}
+                      role={canOpenLightbox ? 'button' : undefined}
+                      tabIndex={canOpenLightbox ? 0 : -1}
+                      onClick={canOpenLightbox ? handleOpenLightbox : undefined}
+                      onKeyDown={handleLightboxKeyDown}
+                    >
+                      {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
+                        <span
+                          className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                          style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>
+                          -{discountPercent}%
+                        </span>
+                      )}
+                      <div className="h-full w-full md:hidden">
+                        <MobileImageCarousel
+                          images={displayImages}
+                          selectedIndex={safeSelectedImageIndex}
+                          onSelect={setSelectedImageIndex}
+                          alt={product.name}
+                          fallbackSrc={productImagePlaceholder}
+                        />
                       </div>
-                    )}
-                    {images.length > 1 && (
-                      <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
-                        {safeSelectedImageIndex + 1}/{images.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="hidden md:flex flex-col gap-3 text-sm" style={{ color: tokens.metaText }}>
-                    <span className="text-xs uppercase tracking-widest" style={{ color: tokens.softText }}>Điểm nổi bật</span>
-                    <ul className="space-y-2">
-                      <li>• Thiết kế cao cấp, hoàn thiện tinh tế</li>
-                      <li>• Công nghệ mới nhất, hiệu năng ổn định</li>
-                      <li>• Bảo hành chính hãng toàn quốc</li>
-                    </ul>
+                      <div className="hidden md:block h-full w-full">
+                        <BlurredProductImage
+                          src={displayImages[safeSelectedImageIndex]}
+                          fallbackSrc={productImagePlaceholder}
+                          alt={product.name}
+                          sizes="(max-width: 1024px) 100vw, 50vw"
+                        />
+                      </div>
+                      {images.length > 1 && (
+                        <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
+                          {safeSelectedImageIndex + 1}/{images.length}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             ) : (
               <div className={`overflow-hidden ${heroContainerClass}`} style={heroContainerStyle}>
                 <div className={heroImageWrapperClass}>
-                  {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
-                    <span
-                      className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}
+                  <div className={imageFrame.frameWidthClassName}>
+                    <div
+                      className={`relative overflow-hidden rounded-xl ${canOpenLightbox ? 'cursor-zoom-in' : ''}`.trim()}
+                      style={{ ...mainImageFrameStyle, backgroundColor: tokens.surfaceMuted }}
+                      role={canOpenLightbox ? 'button' : undefined}
+                      tabIndex={canOpenLightbox ? 0 : -1}
+                      onClick={canOpenLightbox ? handleOpenLightbox : undefined}
+                      onKeyDown={handleLightboxKeyDown}
                     >
-                      -{discountPercent}%
-                    </span>
-                  )}
-                  {images[safeSelectedImageIndex] ? (
-                    <>
+                      {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
+                        <span
+                          className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                          style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>
+                          -{discountPercent}%
+                        </span>
+                      )}
                       <div className="h-full w-full md:hidden">
                         <MobileImageCarousel
-                          images={images}
+                          images={displayImages}
                           selectedIndex={safeSelectedImageIndex}
                           onSelect={setSelectedImageIndex}
                           alt={product.name}
+                          fallbackSrc={productImagePlaceholder}
                         />
                       </div>
                       <div className="hidden md:block h-full w-full">
                         <BlurredProductImage
-                          src={images[safeSelectedImageIndex]}
+                          src={displayImages[safeSelectedImageIndex]}
+                          fallbackSrc={productImagePlaceholder}
                           alt={product.name}
                           sizes="(max-width: 1024px) 100vw, 50vw"
                         />
                       </div>
-                    </>
-                  ) : (
-                    <div className="text-center">
-                      <div className="rounded-lg w-64 h-64 mx-auto mb-4" style={{ backgroundColor: tokens.surfaceSoft }} />
-                      <p className="text-sm" style={{ color: tokens.softText }}>Chưa có hình ảnh sản phẩm</p>
+                      {images.length > 1 && (
+                        <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
+                          {safeSelectedImageIndex + 1}/{images.length}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  {images.length > 1 && (
-                    <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
-                      {safeSelectedImageIndex + 1}/{images.length}
-                    </span>
-                  )}
+                  </div>
                 </div>
               </div>
             )}
@@ -2018,7 +2494,9 @@ function ModernStyle({
                     orientation="horizontal"
                     visibleSlots={5}
                     tokens={tokens}
-                    itemClassName="aspect-square w-20 rounded-xl"
+                    thumbnailAspectRatio={imageFrame.thumbnailAspectRatio}
+                    itemClassName="w-20 rounded-xl"
+                    fallbackSrc={productImagePlaceholder}
                   />
                 </div>
               </>
@@ -2121,8 +2599,14 @@ function ModernStyle({
                 )}
                 {showBuyNow && (
                   <button
-                    className={`w-full h-12 text-base font-semibold border transition-all ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    style={{ borderColor: tokens.ctaSecondaryBorder, color: tokens.ctaSecondaryText }}
+                    className={`w-full h-12 text-base font-semibold border transition-all ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer bg-[var(--cta-secondary-bg)] shadow-sm hover:bg-[var(--cta-secondary-hover-bg)] hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cta-secondary-ring)]'}`}
+                    style={{
+                      borderColor: tokens.ctaSecondaryBorder,
+                      color: tokens.ctaSecondaryText,
+                      '--cta-secondary-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-hover-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-ring': tokens.inputRing,
+                    } as React.CSSProperties}
                     disabled={buyNowDisabled}
                     onClick={() => { if (!buyNowDisabled) { onBuyNow(quantity, selectedVariant?._id); } }}
                   >
@@ -2150,45 +2634,49 @@ function ModernStyle({
             )}
 
             {showHighlights && <HighlightsGrid highlights={highlights} tokens={tokens} />}
-
-            {showStock && (
-              <div className="grid grid-cols-3 gap-4 pt-2">
-                <div className="text-center space-y-2">
-                  <div className="mx-auto w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: tokens.surfaceMuted }}>
-                    <Truck className="w-4 h-4" style={{ color: tokens.metaText }} />
-                  </div>
-                  <p className="text-xs" style={{ color: tokens.metaText }}>Miễn phí vận chuyển</p>
-                </div>
-                <div className="text-center space-y-2">
-                  <div className="mx-auto w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: tokens.surfaceMuted }}>
-                    <Shield className="w-4 h-4" style={{ color: tokens.metaText }} />
-                  </div>
-                  <p className="text-xs" style={{ color: tokens.metaText }}>Bảo hành 12 tháng</p>
-                </div>
-                <div className="text-center space-y-2">
-                  <div className="mx-auto w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: tokens.surfaceMuted }}>
-                    <ShoppingBag className="w-4 h-4" style={{ color: tokens.metaText }} />
-                  </div>
-                  <p className="text-xs" style={{ color: tokens.metaText }}>Đổi trả 30 ngày</p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        <div className="mt-12 lg:mt-16">
+        <div className="mt-12 lg:mt-16 space-y-6">
           <div className="mt-6 border rounded-2xl p-6" style={{ borderColor: tokens.border }}>
-            {showDescription && resolvedDescription ? (
-              <ExpandableDescription
-                content={resolvedDescription}
-                className="prose prose-sm max-w-none"
-                style={{ color: tokens.bodyText }}
-                buttonStyle={{ color: tokens.primary }}
-              />
+            {(showDescription && resolvedDescription) || showAllProductImagesSection || supplementalContent?.preContent || supplementalContent?.postContent ? (
+              <ExpandableProductDescriptionBlock buttonStyle={{ color: tokens.primary }}>
+                {supplementalContent?.preContent ? (
+                  <RichContent
+                    content={toRichTextContent(supplementalContent.preContent)}
+                    className="max-w-none"
+                    style={{ color: tokens.bodyText }}
+                  />
+                ) : null}
+                {showDescription && resolvedDescription ? (
+                  <RichContent
+                    content={resolvedDescription}
+                    className="max-w-none"
+                    style={{ color: tokens.bodyText }}
+                  />
+                ) : null}
+                {supplementalContent?.postContent ? (
+                  <RichContent
+                    content={toRichTextContent(supplementalContent.postContent)}
+                    className="max-w-none"
+                    style={{ color: tokens.bodyText }}
+                  />
+                ) : null}
+                {showAllProductImagesSection ? (
+                  <ProductDescriptionImages
+                    images={images}
+                    tokens={tokens}
+                    frameAspectRatio={imageFrame.frameAspectRatio}
+                    fallbackSrc={productImagePlaceholder}
+                  />
+                ) : null}
+              </ExpandableProductDescriptionBlock>
             ) : (
               <p style={{ color: tokens.metaText }}>Chưa có mô tả chi tiết.</p>
             )}
           </div>
+
+          <ProductSupplementalFaqAccordion faqItems={supplementalContent?.faqItems ?? []} tokens={tokens} />
         </div>
 
         {commentsSection}
@@ -2199,6 +2687,7 @@ function ModernStyle({
             categorySlug={product.categorySlug}
             brandColor={brandColor}
             tokens={tokens}
+            imageAspectRatio={imageAspectRatio}
             showPrice={showPrice}
             showSalePrice={showSalePrice}
             saleMode={saleMode}
@@ -2210,6 +2699,9 @@ function ModernStyle({
             loadMoreRef={relatedLoadMoreRef}
             infiniteStatus={relatedInfiniteStatus}
             isLoading={relatedIsLoading}
+            routeMode={routeMode}
+            categorySlugMap={categorySlugMap}
+            productImagePlaceholder={productImagePlaceholder}
           />
         </div>
       </main>
@@ -2224,6 +2716,8 @@ function MinimalStyle({
   product,
   brandColor,
   tokens,
+  enableImageLightbox,
+  onOpenLightbox,
   relatedProducts,
   relatedProductsMode,
   relatedProductsPerPage,
@@ -2245,6 +2739,8 @@ function MinimalStyle({
   showWishlist,
   showBuyNow,
   buyNowLabel,
+  imageAspectRatio,
+  showAllProductImagesSection,
   requireStockForBuyNow,
   contentWidth,
   isWishlisted,
@@ -2252,16 +2748,39 @@ function MinimalStyle({
   onAddToCart,
   onBuyNow,
   commentsSection,
+  supplementalContent,
+  routeMode,
+  categorySlugMap,
+  productImagePlaceholder,
 }: StyleProps & ExperienceBlocksProps & HighlightBlockProps & { contentWidth: MinimalContentWidth }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<VariantSelectionMap>({});
+  const [mainImageHeight, setMainImageHeight] = useState<number | null>(null);
+  const mainImageRef = useRef<HTMLDivElement>(null);
+  const mainImageHeightRef = useRef<number | null>(null);
 
   const hasVariants = Boolean(product.hasVariants && variants.length > 0 && variantOptions.length > 0);
   const resolvedDescription = useMemo(() => resolveProductContent(product), [product]);
 
   useEffect(() => {
+    const element = mainImageRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const nextHeight = Math.round(entries[0]?.contentRect?.height ?? 0);
+      if (!nextHeight || nextHeight === mainImageHeightRef.current) {
+        return;
+      }
+      mainImageHeightRef.current = nextHeight;
+      setMainImageHeight(nextHeight);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!hasVariants) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedOptions({});
       return;
     }
@@ -2300,17 +2819,23 @@ function MinimalStyle({
   const showSku = enabledFields.has('sku');
 
   const images = buildProductImages(product);
-  const safeSelectedImage = Math.min(selectedImage, Math.max(images.length - 1, 0));
+  const displayImages = images.length > 0 ? images : [productImagePlaceholder];
+  const safeSelectedImage = Math.min(selectedImage, Math.max(displayImages.length - 1, 0));
 
   useEffect(() => {
-    if (images.length === 0 && selectedImage !== 0) {
+    if (displayImages.length === 0 && selectedImage !== 0) {
       setSelectedImage(0);
       return;
     }
-    if (images.length > 0 && selectedImage >= images.length) {
-      setSelectedImage(images.length - 1);
+    if (displayImages.length > 0 && selectedImage >= displayImages.length) {
+      setSelectedImage(displayImages.length - 1);
     }
-  }, [images.length, selectedImage]);
+  }, [displayImages.length, selectedImage]);
+
+  useEffect(() => {
+    preloadNeighborImages(displayImages, safeSelectedImage);
+  }, [displayImages, safeSelectedImage]);
+
   const basePrice = selectedVariant?.price ?? product.price;
   const salePrice = selectedVariant ? selectedVariant.salePrice : product.salePrice;
   const isRangeFromVariant = Boolean(product.hasVariants && !selectedVariant);
@@ -2329,6 +2854,38 @@ function MinimalStyle({
         ? { label: `Chỉ còn ${stockValue} sản phẩm`, color: tokens.stockWarningText }
         : { label: 'Hết hàng', color: tokens.stockDangerText }
     : null;
+  const canOpenLightbox = enableImageLightbox && images.length > 0;
+
+  const handleOpenLightbox = () => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    onOpenLightbox(safeSelectedImage);
+  };
+
+  const handleLightboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canOpenLightbox) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpenLightbox();
+    }
+  };
+
+  const imageFrame = getProductImageFrameConfig(imageAspectRatio, 'minimal');
+  const mainImageFrameStyle: React.CSSProperties = { aspectRatio: imageFrame.frameAspectRatio };
+  const verticalVisibleSlots = mainImageHeight
+    ? getVerticalThumbnailSlots({
+      frameHeight: mainImageHeight,
+      thumbnailWidth: 80,
+      thumbnailAspectRatio: imageFrame.thumbnailAspectRatio,
+      gap: 8,
+      arrowHeight: 36,
+      imageCount: displayImages.length,
+      minSlots: 1,
+    })
+    : 6;
 
   const contentWidthClass = contentWidth === 'narrow'
     ? 'max-w-4xl'
@@ -2373,47 +2930,51 @@ function MinimalStyle({
                       selectedIndex={safeSelectedImage}
                       onSelect={setSelectedImage}
                       orientation="vertical"
-                      visibleSlots={6}
+                      visibleSlots={verticalVisibleSlots}
                       tokens={tokens}
-                      itemClassName="aspect-square w-full rounded-sm"
+                      thumbnailAspectRatio={imageFrame.thumbnailAspectRatio}
+                      itemClassName="w-full rounded-sm"
                       inactiveClassName="opacity-70 hover:opacity-100"
+                      fallbackSrc={productImagePlaceholder}
                     />
                   </div>
                 )}
 
-                <div className="flex-1 relative aspect-square w-full rounded-sm overflow-hidden" style={{ backgroundColor: tokens.surfaceMuted }}>
-                  {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
-                    <span
-                      className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}
-                    >
-                      -{discountPercent}%
-                    </span>
-                  )}
-                  {images.length > 0 ? (
-                    <>
-                      <div className="h-full w-full md:hidden">
-                        <MobileImageCarousel
-                          images={images}
-                          selectedIndex={safeSelectedImage}
-                          onSelect={setSelectedImage}
-                          alt={product.name}
-                        />
-                      </div>
-                      <div className="hidden md:block h-full w-full">
-                        <BlurredProductImage src={images[safeSelectedImage]} alt={product.name} sizes="(max-width: 1024px) 100vw, 60vw" />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Package size={64} style={{ color: tokens.emptyStateIcon }} />
+                <div className={`flex-1 ${imageFrame.frameWidthClassName}`}>
+                  <div
+                    ref={mainImageRef}
+                    className={`relative w-full rounded-sm overflow-hidden ${canOpenLightbox ? 'cursor-zoom-in' : ''}`.trim()}
+                    style={{ ...mainImageFrameStyle, backgroundColor: tokens.surfaceMuted }}
+                    role={canOpenLightbox ? 'button' : undefined}
+                    tabIndex={canOpenLightbox ? 0 : -1}
+                    onClick={canOpenLightbox ? handleOpenLightbox : undefined}
+                    onKeyDown={handleLightboxKeyDown}
+                  >
+                    {showSalePrice && priceDisplay.comparePrice && discountPercent > 0 && (
+                      <span
+                        className="absolute left-3 top-3 z-20 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                        style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>
+                        -{discountPercent}%
+                      </span>
+                    )}
+                    <div className="h-full w-full md:hidden">
+                      <MobileImageCarousel
+                        images={displayImages}
+                        selectedIndex={safeSelectedImage}
+                        onSelect={setSelectedImage}
+                        alt={product.name}
+                        fallbackSrc={productImagePlaceholder}
+                      />
                     </div>
-                  )}
-                  {images.length > 1 && (
-                    <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
-                      {safeSelectedImage + 1}/{images.length}
-                    </span>
-                  )}
+                    <div className="hidden md:block h-full w-full">
+                      <BlurredProductImage src={displayImages[safeSelectedImage]} fallbackSrc={productImagePlaceholder} alt={product.name} sizes="(max-width: 1024px) 100vw, 60vw" />
+                    </div>
+                    {images.length > 1 && (
+                      <span className="absolute bottom-3 right-3 md:hidden px-2 py-0.5 text-[11px] font-semibold rounded-full backdrop-blur-sm" style={{ backgroundColor: tokens.surface, color: tokens.headingColor }}>
+                        {safeSelectedImage + 1}/{images.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2499,8 +3060,14 @@ function MinimalStyle({
                 </div>
                 {showBuyNow && (
                   <button
-                    className={`h-12 uppercase tracking-wider text-xs font-medium border transition-colors ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    style={{ borderColor: tokens.ctaSecondaryBorder, color: tokens.ctaSecondaryText }}
+                    className={`h-12 uppercase tracking-wider text-xs font-medium border transition-all ${buyNowDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer bg-[var(--cta-secondary-bg)] shadow-sm hover:bg-[var(--cta-secondary-hover-bg)] hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cta-secondary-ring)]'}`}
+                    style={{
+                      borderColor: tokens.ctaSecondaryBorder,
+                      color: tokens.ctaSecondaryText,
+                      '--cta-secondary-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-hover-bg': tokens.ctaSecondaryHoverBg,
+                      '--cta-secondary-ring': tokens.inputRing,
+                    } as React.CSSProperties}
                     disabled={buyNowDisabled}
                     onClick={() => { if (!buyNowDisabled) { onBuyNow(1, selectedVariant?._id); } }}
                   >
@@ -2532,22 +3099,50 @@ function MinimalStyle({
         </div>
 
         {commentsSection}
-        {showDescription && resolvedDescription && (
+        {(showDescription && resolvedDescription) || showAllProductImagesSection || supplementalContent?.preContent || supplementalContent?.postContent ? (
           <section className="mt-10 rounded-2xl border px-6 py-8" style={{ borderColor: tokens.border }}>
-            <h2 className="text-lg font-semibold mb-4" style={{ color: tokens.headingColor }}>Mô tả sản phẩm</h2>
-            <ExpandableDescription
-              content={resolvedDescription}
-              className="leading-relaxed font-light text-justify"
-              style={{ color: tokens.bodyText }}
-              buttonStyle={{ color: tokens.primary }}
-            />
+            <ExpandableProductDescriptionBlock buttonStyle={{ color: tokens.primary }}>
+              {supplementalContent?.preContent ? (
+                <RichContent
+                  content={toRichTextContent(supplementalContent.preContent)}
+                  className="leading-relaxed font-light text-justify"
+                  style={{ color: tokens.bodyText }}
+                />
+              ) : null}
+              {showDescription && resolvedDescription && (
+                <RichContent
+                  content={resolvedDescription}
+                  className="leading-relaxed font-light text-justify"
+                  style={{ color: tokens.bodyText }}
+                />
+              )}
+              {supplementalContent?.postContent ? (
+                <RichContent
+                  content={toRichTextContent(supplementalContent.postContent)}
+                  className="leading-relaxed font-light text-justify"
+                  style={{ color: tokens.bodyText }}
+                />
+              ) : null}
+              {showAllProductImagesSection && (
+                <ProductDescriptionImages
+                  images={images}
+                  tokens={tokens}
+                  frameAspectRatio={imageFrame.frameAspectRatio}
+                  fallbackSrc={productImagePlaceholder}
+                />
+              )}
+            </ExpandableProductDescriptionBlock>
           </section>
-        )}
+        ) : null}
+        <section className="mt-10">
+          <ProductSupplementalFaqAccordion faqItems={supplementalContent?.faqItems ?? []} tokens={tokens} />
+        </section>
         <RelatedProductsSection
           products={relatedProducts}
           categorySlug={product.categorySlug}
           brandColor={brandColor}
           tokens={tokens}
+          imageAspectRatio={imageAspectRatio}
           showPrice={showPrice}
           showSalePrice={enabledFields.has('salePrice')}
           saleMode={saleMode}
@@ -2559,6 +3154,9 @@ function MinimalStyle({
           loadMoreRef={relatedLoadMoreRef}
           infiniteStatus={relatedInfiniteStatus}
           isLoading={relatedIsLoading}
+          routeMode={routeMode}
+          categorySlugMap={categorySlugMap}
+          productImagePlaceholder={productImagePlaceholder}
         />
       </main>
     </div>
@@ -2939,6 +3537,7 @@ function RelatedProductsSection({
   categorySlug,
   brandColor,
   tokens,
+  imageAspectRatio,
   showPrice,
   showSalePrice,
   saleMode,
@@ -2950,11 +3549,15 @@ function RelatedProductsSection({
   loadMoreRef,
   infiniteStatus,
   isLoading,
+  routeMode,
+  categorySlugMap,
+  productImagePlaceholder,
 }: {
   products: RelatedProduct[];
   categorySlug?: string;
   brandColor: string;
   tokens: ProductDetailColors;
+  imageAspectRatio: ProductImageAspectRatio;
   showPrice: boolean;
   showSalePrice: boolean;
   saleMode: ProductsSaleMode;
@@ -2966,13 +3569,28 @@ function RelatedProductsSection({
   loadMoreRef: (node?: Element | null) => void;
   infiniteStatus: PaginationStatus;
   isLoading: boolean;
+  routeMode: 'unified' | 'namespace';
+  categorySlugMap: Map<string, string>;
+  productImagePlaceholder: string;
 }) {
+  const { frame } = useProductFrameConfig();
+  const getDetailHref = useMemo(() => (
+    (relatedProduct: RelatedProduct) => buildDetailPath({
+      categorySlug: categorySlugMap.get(relatedProduct.categoryId),
+      mode: routeMode,
+      moduleKey: 'products',
+      recordSlug: relatedProduct.slug,
+    })
+  ), [categorySlugMap, routeMode]);
   if (products.length === 0 && !isLoading) {return null;}
   const totalPages = totalCount > 0 ? Math.max(Math.ceil(totalCount / perPage), 1) : 1;
   const paginationItems = mode === 'pagination' ? generatePaginationItems(page, totalPages) : [];
   const canGoPrev = page > 1;
   const canGoNext = page < totalPages;
   const isExhausted = infiniteStatus === 'Exhausted';
+  const relatedImageStyle: React.CSSProperties = {
+    aspectRatio: getProductImageFrameConfig(imageAspectRatio, 'classic').frameAspectRatio,
+  };
 
   return (
     <section className="mt-16 pt-12 border-t" style={{ borderColor: tokens.divider }}>
@@ -2997,16 +3615,13 @@ function RelatedProductsSection({
           return (
           <Link
             key={p._id}
-            href={`/products/${p.slug}`}
+            href={getDetailHref(p)}
             className="rounded-xl overflow-hidden border"
             style={{ borderColor: tokens.relatedCardBorder, backgroundColor: tokens.relatedCardBg }}
           >
-            <div className="aspect-square overflow-hidden relative" style={{ backgroundColor: tokens.surfaceMuted }}>
-              {p.image ? (
-                <Image src={p.image} alt={p.name} fill sizes="(max-width: 768px) 50vw, 25vw" className="object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center"><Package size={32} style={{ color: tokens.emptyStateIcon }} /></div>
-              )}
+            <div className="overflow-hidden relative" style={{ ...relatedImageStyle, backgroundColor: tokens.surfaceMuted }}>
+              <ProductImageWithFallback mode="thumb" src={p.image} fallbackSrc={productImagePlaceholder} alt={p.name} fill sizes="(max-width: 768px) 50vw, 25vw" className="object-cover" />
+              <ProductImageFrameOverlay frame={frame} />
               {showSalePrice && priceDisplay.comparePrice && !priceDisplay.isContactPrice && (
                 <span className="absolute top-2 left-2 px-2 py-1 text-xs font-semibold rounded" style={{ backgroundColor: tokens.discountBadgeBg, color: tokens.discountBadgeText }}>-{Math.round((1 - p.price / priceDisplay.comparePrice) * 100)}%</span>
               )}

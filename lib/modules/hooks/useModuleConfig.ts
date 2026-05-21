@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { toast } from 'sonner';
+import { revalidateSeoPaths } from '@/app/actions/seo-revalidate';
 import type { ModuleDefinition } from '../define-module';
 import type { FieldConfig, FieldType } from '@/types/module-config';
 
@@ -243,9 +244,11 @@ export function useModuleConfig(config: ModuleDefinition) {
      // Auto-update linked fields
      const feature = config.features?.find(f => f.key === key);
      if (feature?.linkedField) {
-       setLocalFields(prev => prev.map(f => 
-         f.linkedFeature === key ? { ...f, enabled: newState } : f
-       ));
+       setLocalFields(prev => prev.map(f => {
+        if (f.linkedFeature !== key) {return f;}
+        if (f.isSystem && !newState) {return f;}
+        return { ...f, enabled: newState };
+      }));
      }
 
     if (moduleKey === 'subscriptions' && key === 'enablePriority') {
@@ -268,7 +271,13 @@ export function useModuleConfig(config: ModuleDefinition) {
    }, []);
    
    const handleSettingChange = useCallback((key: string, value: string | number | boolean) => {
-    setLocalSettings(prev => ({ ...prev, [key]: value }));
+    setLocalSettings(prev => {
+      const next = { ...prev, [key]: value };
+      if (moduleKey === 'homepage' && key === 'enableSmartWizard' && value === false) {
+        next.enableLegacySnapshotQuickCreate = false;
+      }
+      return next;
+    });
     if (moduleKey === 'posts' && key === 'enableAutoPostGenerator' && value === true) {
       setLocalFeatures(prev => ({ ...prev, enableHtmlRender: true }));
       setLocalFields(prev => prev.map(field => (
@@ -336,24 +345,9 @@ export function useModuleConfig(config: ModuleDefinition) {
        
        await Promise.all(promises);
       if (hasSiteUrlChanged) {
-        const revalidateSecret = process.env.NEXT_PUBLIC_SEO_REVALIDATE_SECRET;
-        if (!revalidateSecret) {
+        void revalidateSeoPaths().catch(() => {
           toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
-        } else {
-          fetch('/api/internal/seo/revalidate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-seo-revalidate-secret': revalidateSecret,
-            },
-          }).then((response) => {
-            if (!response.ok) {
-              toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
-            }
-          }).catch(() => {
-            toast.warning('Đã lưu, đồng bộ SEO đang chậm.');
-          });
-        }
+        });
       }
        toast.success('Đã lưu cấu hình!');
      } catch (error) {

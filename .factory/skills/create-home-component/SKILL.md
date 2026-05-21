@@ -41,6 +41,18 @@ components/site/
 
 Nếu có xung đột với `system-extension-guideline`, luôn ưu tiên master playbook.
 
+## File Lifecycle Service (FLS) bắt buộc nếu component có upload
+
+Nếu home-component có upload ảnh/video/file, phải kích hoạt và làm theo `.factory/skills/file-lifecycle-service/SKILL.md`.
+
+Checklist tối thiểu:
+- Upload xong phải có `storageId` hoặc backend phải resolve được legacy URL-only.
+- Draft upload chưa save phải được register qua `fileDraftUploads` và cleanup khi rời trang/cron.
+- Create/update/delete phải đi qua `homeComponents` mutation để sync `fileReferences`.
+- UI business record đã lưu không xóa storage trực tiếp; dùng defer/server cleanup.
+- Delete/bulk delete `/admin/home-components` phải gọi `api.homeComponents.remove`.
+- Verify các case: upload chưa save, chỉ save một phần, đổi ảnh, xóa ảnh, xóa record, legacy URL-only.
+
 ## WebSearch Best Practices (Khi cần)
 
 **CRITICAL**: Chỉ bắt buộc WebSearch khi component domain mới/thiếu pattern nội bộ. Nếu repo đã có component tương tự, ưu tiên dùng reference nội bộ trước.

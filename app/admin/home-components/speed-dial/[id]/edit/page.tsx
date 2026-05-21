@@ -1,5 +1,9 @@
 'use client';
 
+import { useUndoRedo } from '../../../_shared/hooks/useUndoRedo';
+
+import { useUnsavedGuard } from '../../../_shared/hooks/useUnsavedGuard';
+
 import React, { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -8,7 +12,7 @@ import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { Loader2, PhoneCall } from 'lucide-react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle, Input, Label, cn } from '../../../../components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '../../../../components/ui';
 import { TypeColorOverrideCard } from '../../../_shared/components/TypeColorOverrideCard';
 import { useTypeColorOverrideState } from '../../../_shared/hooks/useTypeColorOverride';
 import { getSuggestedSecondary, resolveSecondaryByMode } from '../../../_shared/lib/typeColorOverride';
@@ -28,12 +32,33 @@ import type {
 
 const COMPONENT_TYPE = 'SpeedDial';
 
+type SnapshotEditableComponent = {
+  _id: string;
+  active: boolean;
+  config?: Record<string, any>;
+  title: string;
+  type: string;
+};
+
+type SpeedDialEditPageProps = {
+  backHref?: string;
+  enableTypeOverrides?: boolean;
+  onSnapshotSave?: (next: { active: boolean; config: Record<string, any>; title: string }) => Promise<void>;
+  params?: Promise<{ id: string }>;
+  snapshotComponent?: SnapshotEditableComponent;
+  snapshotLabel?: string;
+};
+
 const normalizePosition = (value: unknown): SpeedDialPosition => (
   value === 'bottom-left' ? 'bottom-left' : 'bottom-right'
 );
 
 const normalizeString = (value: unknown, fallback = '') => (
   typeof value === 'string' ? value : fallback
+);
+
+const normalizeBoolean = (value: unknown, fallback: boolean) => (
+  typeof value === 'boolean' ? value : fallback
 );
 
 const normalizeActions = (value: unknown): SpeedDialAction[] => {
@@ -60,6 +85,9 @@ const toSnapshot = (payload: {
   active: boolean;
   style: SpeedDialStyle;
   position: SpeedDialPosition;
+  defaultOpen: boolean;
+  showOnAllPages: boolean;
+  enableShadow: boolean;
   actions: SpeedDialAction[];
 }) => JSON.stringify({
   ...payload,
@@ -72,26 +100,46 @@ const toSnapshot = (payload: {
   })),
 });
 
-export default function SpeedDialEditPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function SpeedDialEditPage({
+  backHref = '/admin/home-components',
+  enableTypeOverrides = true,
+  onSnapshotSave,
+  params,
+  snapshotComponent,
+  snapshotLabel,
+}: SpeedDialEditPageProps) {
+  const routeParams = snapshotComponent ? null : use(params!);
+  const id = snapshotComponent?._id ?? routeParams?.id ?? '';
   const router = useRouter();
   const { customState, effectiveColors, initialCustom, setCustomState, setInitialCustom, showCustomBlock } = useTypeColorOverrideState(COMPONENT_TYPE);
   const setTypeColorOverride = useMutation(api.homeComponentSystemConfig.setTypeColorOverride);
-  const component = useQuery(api.homeComponents.getById, { id: id as Id<'homeComponents'> });
+  const liveComponent = useQuery(api.homeComponents.getById, snapshotComponent ? 'skip' : { id: id as Id<'homeComponents'> });
+  const component = snapshotComponent ?? liveComponent;
   const updateMutation = useMutation(api.homeComponents.update);
 
   const [title, setTitle] = useState('');
   const [active, setActive] = useState(true);
-  const [actions, setActions] = useState<SpeedDialAction[]>([]);
+  const {
+    state: actions,
+    set: setActions,
+    undo: undoactions,
+    redo: redoactions,
+    canUndo: canUndoactions,
+    canRedo: canRedoactions,
+    reset: resetactions,
+  } = useUndoRedo<SpeedDialAction[]>([], { maxHistory: 15 });
   const [style, setStyle] = useState<SpeedDialStyle>(normalizeSpeedDialStyle(DEFAULT_SPEED_DIAL_CONFIG.style));
   const [position, setPosition] = useState<SpeedDialPosition>(DEFAULT_SPEED_DIAL_CONFIG.position);
+  const [defaultOpen, setDefaultOpen] = useState<boolean>(DEFAULT_SPEED_DIAL_CONFIG.defaultOpen);
+  const [showOnAllPages, setShowOnAllPages] = useState<boolean>(DEFAULT_SPEED_DIAL_CONFIG.showOnAllPages);
+  const [enableShadow, setEnableShadow] = useState<boolean>(DEFAULT_SPEED_DIAL_CONFIG.enableShadow);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialSnapshot, setInitialSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!component) {return;}
 
-    if (component.type !== 'SpeedDial') {
+    if (!snapshotComponent && component.type !== 'SpeedDial') {
       router.replace(`/admin/home-components/${id}/edit`);
       return;
     }
@@ -100,18 +148,27 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
     const normalizedActions = normalizeActions((rawConfig as Record<string, unknown>).actions);
     const normalizedStyle = normalizeSpeedDialStyle((rawConfig as Record<string, unknown>).style as string | undefined);
     const normalizedPosition = normalizePosition((rawConfig as Record<string, unknown>).position);
+    const normalizedDefaultOpen = normalizeBoolean((rawConfig as Record<string, unknown>).defaultOpen, DEFAULT_SPEED_DIAL_CONFIG.defaultOpen);
+    const normalizedShowOnAllPages = normalizeBoolean((rawConfig as Record<string, unknown>).showOnAllPages, DEFAULT_SPEED_DIAL_CONFIG.showOnAllPages);
+    const normalizedEnableShadow = normalizeBoolean((rawConfig as Record<string, unknown>).enableShadow, DEFAULT_SPEED_DIAL_CONFIG.enableShadow);
 
     setTitle(component.title);
     setActive(component.active);
-    setActions(normalizedActions);
+    resetactions(normalizedActions);
     setStyle(normalizedStyle);
     setPosition(normalizedPosition);
+    setDefaultOpen(normalizedDefaultOpen);
+    setShowOnAllPages(normalizedShowOnAllPages);
+    setEnableShadow(normalizedEnableShadow);
 
     setInitialSnapshot(toSnapshot({
       title: component.title,
       active: component.active,
       style: normalizedStyle,
       position: normalizedPosition,
+      defaultOpen: normalizedDefaultOpen,
+      showOnAllPages: normalizedShowOnAllPages,
+      enableShadow: normalizedEnableShadow,
       actions: normalizedActions,
     }));
   }, [component, id, router]);
@@ -121,16 +178,21 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
     active,
     style,
     position,
+    defaultOpen,
+    showOnAllPages,
+    enableShadow,
     actions,
   });
   const resolvedCustomSecondary = resolveSecondaryByMode(customState.mode, customState.primary, customState.secondary);
-  const customChanged = showCustomBlock
+  const customChanged = enableTypeOverrides && showCustomBlock
     ? customState.enabled !== initialCustom.enabled
       || customState.mode !== initialCustom.mode
       || customState.primary !== initialCustom.primary
       || resolvedCustomSecondary !== initialCustom.secondary
     : false;
   const hasChanges = initialSnapshot !== null && (currentSnapshot !== initialSnapshot || customChanged);
+
+  useUnsavedGuard(hasChanges);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -148,15 +210,22 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
         })),
         style,
         position,
+        defaultOpen,
+        showOnAllPages,
+        enableShadow,
       };
 
-      await updateMutation({
-        active,
-        config: nextConfig,
-        id: id as Id<'homeComponents'>,
-        title,
-      });
-      if (showCustomBlock) {
+      if (onSnapshotSave) {
+        await onSnapshotSave({ active, config: nextConfig as Record<string, any>, title });
+      } else {
+        await updateMutation({
+          active,
+          config: nextConfig,
+          id: id as Id<'homeComponents'>,
+          title,
+        });
+      }
+      if (enableTypeOverrides && showCustomBlock) {
         const resolvedCustomSecondary = resolveSecondaryByMode(customState.mode, customState.primary, customState.secondary);
         await setTypeColorOverride({
           enabled: customState.enabled,
@@ -172,9 +241,12 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
         active,
         style,
         position,
+        defaultOpen,
+        showOnAllPages,
+        enableShadow,
         actions,
       }));
-      if (showCustomBlock) {
+      if (enableTypeOverrides && showCustomBlock) {
         setInitialCustom({
           enabled: customState.enabled,
           mode: customState.mode,
@@ -208,7 +280,8 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Chỉnh sửa Speed Dial</h1>
-        <Link href="/admin/home-components" className="text-sm text-blue-600 hover:underline">Quay lại danh sách</Link>
+        {snapshotLabel ? <p className="text-sm text-slate-500 dark:text-slate-400">Snapshot: {snapshotLabel}</p> : null}
+        <Link href={backHref} className="text-sm text-blue-600 hover:underline">Quay lại danh sách</Link>
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -229,26 +302,7 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
                 placeholder="Nhập tiêu đề component..."
               />
             </div>
-
-            <div className="flex items-center gap-3">
-              <Label>Trạng thái:</Label>
-              <div
-                className={cn(
-                  'cursor-pointer inline-flex items-center justify-center rounded-full w-12 h-6 transition-colors',
-                  active ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600',
-                )}
-                onClick={() => { setActive(!active); }}
-              >
-                <div
-                  className={cn(
-                    'w-5 h-5 bg-white rounded-full transition-transform shadow',
-                    active ? 'translate-x-2.5' : '-translate-x-2.5',
-                  )}
-                />
-              </div>
-              <span className="text-sm text-slate-500">{active ? 'Bật' : 'Tắt'}</span>
-            </div>
-          </CardContent>
+</CardContent>
         </Card>
 
         <SpeedDialForm
@@ -256,13 +310,20 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
           onActionsChange={setActions}
           position={position}
           onPositionChange={setPosition}
+          defaultOpen={defaultOpen}
+          onDefaultOpenChange={setDefaultOpen}
+          showOnAllPages={showOnAllPages}
+          onShowOnAllPagesChange={setShowOnAllPages}
+          enableShadow={enableShadow}
+          onEnableShadowChange={setEnableShadow}
           defaultActionColor={effectiveColors.secondary}
+          defaultExpanded={false}
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,420px] gap-6">
           <div />
           <div className="lg:sticky lg:top-6 lg:self-start space-y-4">
-            {showCustomBlock && (
+            {enableTypeOverrides && showCustomBlock && (
               <TypeColorOverrideCard
                 title="Màu custom cho Speed Dial"
                 enabled={customState.enabled}
@@ -300,6 +361,8 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
               title={title}
               selectedStyle={style}
               onStyleChange={setStyle}
+              defaultOpen={defaultOpen}
+              enableShadow={enableShadow}
             />
           </div>
         </div>
@@ -307,8 +370,17 @@ export default function SpeedDialEditPage({ params }: { params: Promise<{ id: st
         <HomeComponentStickyFooter
           isSubmitting={isSubmitting}
           hasChanges={hasChanges}
-          onCancel={() => { router.push('/admin/home-components'); }}
+          onCancel={() => { router.push(backHref); }}
           submitLabel="Lưu thay đổi"
+        active={active}
+        onActiveChange={setActive}
+        
+        undoRedo={{
+          canUndo: canUndoactions,
+          canRedo: canRedoactions,
+          onUndo: undoactions,
+          onRedo: redoactions,
+        }}
         />
       </form>
     </div>
