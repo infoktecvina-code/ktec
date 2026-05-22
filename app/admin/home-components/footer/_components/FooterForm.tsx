@@ -1184,7 +1184,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                             onClick={() => {
                               handleSelectQuickRoute({
                                 label: post.title,
-                                url: post.categorySlug ? `/${post.categorySlug}/${post.slug}` : `/posts/${post.slug}`,
+                                url: `/${post.categorySlug || 'chua-phan-loai'}/${post.slug}`,
                                 source: 'posts',
                                 group: 'Module',
                               });
@@ -1193,7 +1193,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                           >
                             <div className="min-w-0 flex-1">
                               <div className="break-words font-semibold text-slate-700 dark:text-slate-200">{post.title}</div>
-                              <div className="break-all font-mono text-xs text-slate-500">{post.categorySlug ? `/${post.categorySlug}/${post.slug}` : `/posts/${post.slug}`}</div>
+                              <div className="break-all font-mono text-xs text-slate-500">{`/${post.categorySlug || 'chua-phan-loai'}/${post.slug}`}</div>
                             </div>
                           </button>
                         ))}
@@ -1209,7 +1209,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                             onClick={() => {
                               handleSelectQuickRoute({
                                 label: product.name,
-                                url: product.categorySlug ? `/${product.categorySlug}/${product.slug}` : `/products/${product.slug}`,
+                                url: `/${product.categorySlug || 'chua-phan-loai'}/${product.slug}`,
                                 source: 'products',
                                 group: 'Module',
                               });
@@ -1218,7 +1218,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                           >
                             <div className="min-w-0 flex-1">
                               <div className="break-words font-semibold text-slate-700 dark:text-slate-200">{product.name}</div>
-                              <div className="break-all font-mono text-xs text-slate-500">{product.categorySlug ? `/${product.categorySlug}/${product.slug}` : `/products/${product.slug}`}</div>
+                              <div className="break-all font-mono text-xs text-slate-500">{`/${product.categorySlug || 'chua-phan-loai'}/${product.slug}`}</div>
                             </div>
                           </button>
                         ))}
@@ -1234,7 +1234,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                             onClick={() => {
                               handleSelectQuickRoute({
                                 label: service.title,
-                                url: service.categorySlug ? `/${service.categorySlug}/${service.slug}` : `/services/${service.slug}`,
+                                url: `/${service.categorySlug || 'chua-phan-loai'}/${service.slug}`,
                                 source: 'services',
                                 group: 'Module',
                               });
@@ -1243,7 +1243,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
                           >
                             <div className="min-w-0 flex-1">
                               <div className="break-words font-semibold text-slate-700 dark:text-slate-200">{service.title}</div>
-                              <div className="break-all font-mono text-xs text-slate-500">{service.categorySlug ? `/${service.categorySlug}/${service.slug}` : `/services/${service.slug}`}</div>
+                              <div className="break-all font-mono text-xs text-slate-500">{`/${service.categorySlug || 'chua-phan-loai'}/${service.slug}`}</div>
                             </div>
                           </button>
                         ))}

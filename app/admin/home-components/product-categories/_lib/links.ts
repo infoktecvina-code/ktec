@@ -5,7 +5,7 @@ import type { CategoryConfigItem } from '../_types';
 export const getDefaultCategoryLink = (slug?: string) => slug ? `/products?category=${slug}` : '/products';
 
 export const resolveProductCategoryHref = (
-  item: Pick<CategoryConfigItem, 'linkMode' | 'customLinkValue'>,
+  item: { linkMode?: string; customLinkValue?: string },
   categorySlug?: string
 ) => {
   if (item.linkMode === 'custom' && item.customLinkValue?.trim()) {
@@ -16,7 +16,7 @@ export const resolveProductCategoryHref = (
 };
 
 export const isCustomProductCategoryLink = (
-  item: Pick<CategoryConfigItem, 'linkMode' | 'customLinkValue'>,
+  item: { linkMode?: string; customLinkValue?: string },
   categorySlug?: string
 ) => {
   const defaultHref = getDefaultCategoryLink(categorySlug);

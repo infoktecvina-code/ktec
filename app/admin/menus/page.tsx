@@ -52,18 +52,12 @@ const MODULE_SITE_ROUTE_CATALOG: Record<string, { label: string; url: string }[]
     { label: 'Đơn hàng', url: '/account/orders' },
     { label: 'Checkout', url: '/checkout' },
   ],
-  posts: [
-    { label: 'Danh sách bài viết', url: '/posts' },
-  ],
-  products: [
-    { label: 'Danh sách sản phẩm', url: '/products' },
-  ],
+  posts: [],
+  products: [],
   promotions: [
     { label: 'Khuyến mãi', url: '/promotions' },
   ],
-  services: [
-    { label: 'Danh sách dịch vụ', url: '/services' },
-  ],
+  services: [],
   wishlist: [
     { label: 'Wishlist', url: '/wishlist' },
   ],
@@ -385,7 +379,7 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
           `${productCategories?.length ?? 0} danh mục sản phẩm có thể làm menu con`,
         ],
         score: 96 + Math.min(12, productCategories?.length ?? 0),
-        url: '/products',
+        url: '#',
       });
       appendCategories(productCategories, 'products', 88);
     }
@@ -399,7 +393,7 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
           `${serviceCategories?.length ?? 0} danh mục dịch vụ có thể làm menu con`,
         ],
         score: 90 + Math.min(8, serviceCategories?.length ?? 0),
-        url: '/services',
+        url: '#',
       });
       appendCategories(serviceCategories, 'services', 78);
     }
@@ -413,7 +407,7 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
           `${postCategories?.length ?? 0} danh mục bài viết có thể làm menu con`,
         ],
         score: 82 + Math.min(6, postCategories?.length ?? 0),
-        url: '/posts',
+        url: '#',
       });
       appendCategories(postCategories, 'posts', 68);
     }
@@ -1289,7 +1283,14 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
                           >
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-slate-700 truncate">{post.title}</div>
-                              <div className="text-xs text-slate-500 font-mono truncate">/posts/{post.slug}</div>
+                              <div className="text-xs text-slate-500 font-mono truncate">
+                                {buildDetailPath({
+                                  categorySlug: post.categorySlug,
+                                  mode: routeMode,
+                                  moduleKey: 'posts',
+                                  recordSlug: post.slug,
+                                })}
+                              </div>
                             </div>
                           </button>
                         ))}
@@ -1319,7 +1320,14 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
                           >
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-slate-700 truncate">{product.name}</div>
-                              <div className="text-xs text-slate-500 font-mono truncate">/products/{product.slug}</div>
+                              <div className="text-xs text-slate-500 font-mono truncate">
+                                {buildDetailPath({
+                                  categorySlug: product.categorySlug,
+                                  mode: routeMode,
+                                  moduleKey: 'products',
+                                  recordSlug: product.slug,
+                                })}
+                              </div>
                             </div>
                           </button>
                         ))}
@@ -1349,7 +1357,14 @@ function MenuItemsEditor({ menuId }: { menuId: Id<"menus"> }) {
                           >
                             <div className="min-w-0 flex-1">
                               <div className="font-semibold text-slate-700 truncate">{service.title}</div>
-                              <div className="text-xs text-slate-500 font-mono truncate">/services/{service.slug}</div>
+                              <div className="text-xs text-slate-500 font-mono truncate">
+                                {buildDetailPath({
+                                  categorySlug: service.categorySlug,
+                                  mode: routeMode,
+                                  moduleKey: 'services',
+                                  recordSlug: service.slug,
+                                })}
+                              </div>
                             </div>
                           </button>
                         ))}

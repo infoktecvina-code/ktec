@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation';
 import { api } from '@/convex/_generated/api';
 import { getConvexClient } from '@/lib/convex';
-import ProductDetailPage from '@/app/(site)/products/[slug]/page';
-import PostDetailPage from '@/app/(site)/posts/[slug]/page';
-import ServiceDetailPage from '@/app/(site)/services/[slug]/page';
+import ProductDetailPage from './_components/ProductDetailPage';
+import PostDetailPage from './_components/PostDetailPage';
+import ServiceDetailPage from './_components/ServiceDetailPage';
 
 interface Props {
   params: Promise<{ categorySlug: string; recordSlug: string }>;

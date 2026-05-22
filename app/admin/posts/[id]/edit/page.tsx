@@ -448,7 +448,7 @@ export default function PostEditPage({ params }: { params: Promise<{ id: string 
                     {metaTitle.trim() || title || 'Tiêu đề bài viết'}
                   </div>
                   <div className="text-emerald-600 text-xs">
-                    /posts/{slug || 'bai-viet'}
+                    /{selectedCategorySlug || 'chua-phan-loai'}/{slug || 'bai-viet'}
                   </div>
                   <div className="text-slate-600 text-xs mt-1 line-clamp-2">
                     {metaDescription.trim() || excerpt || 'Mô tả ngắn sẽ hiển thị tại đây.'}
@@ -566,7 +566,7 @@ export default function PostEditPage({ params }: { params: Promise<{ id: string 
           <Button
             type="button"
             variant="outline"
-            onClick={() => window.open(selectedCategorySlug ? `/${selectedCategorySlug}/${slug}` : `/posts/${slug}`, '_blank')}
+            onClick={() => window.open(`/${selectedCategorySlug || 'chua-phan-loai'}/${slug}`, '_blank')}
             className="gap-2"
             disabled={!slug.trim()}
           >

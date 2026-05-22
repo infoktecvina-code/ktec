@@ -3549,7 +3549,7 @@ function GallerySection({ config, brandColor, secondary, mode, title, type }: { 
 // Best Practices: Clear navigation, visual appeal, mobile optimization, hover effects
 // 8 styles: grid, carousel, cards, marquee, circular, icon-grid, mosaic, compact-grid
 import { ProductCategoriesSectionShared } from '@/app/admin/home-components/product-categories/_components/ProductCategoriesSectionShared';
-import { normalizeProductCategoriesCornerRadius, normalizeProductCategoriesSpacing, type ProductCategoriesAlign, type ProductCategoriesResolvedItem, type ProductCategoriesStyle } from '@/app/admin/home-components/product-categories/_types';
+import { normalizeProductCategoriesCornerRadius, normalizeProductCategoriesSpacing, normalizeProductCategoriesDesktopColumns, type ProductCategoriesAlign, type ProductCategoriesResolvedItem, type ProductCategoriesStyle } from '@/app/admin/home-components/product-categories/_types';
 
 function ProductCategoriesSection({ config, brandColor, secondary, mode, title }: { config: Record<string, unknown>; brandColor: string;
   secondary: string; mode: 'single' | 'dual'; title: string }) {
@@ -3651,7 +3651,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
 
   // Demo mode: use embedded demo data instead of real categories
   const selectionMode = (config.selectionMode as string) || 'real';
-  const demoCategories = Array.isArray(config.demoCategories) ? config.demoCategories as { id: string; name: string; image?: string; productCount?: number }[] : [];
+  const demoCategories = Array.isArray(config.demoCategories) ? config.demoCategories as { id: string; name: string; image?: string; productCount?: number; link?: string }[] : [];
   
   const finalItems: ProductCategoriesResolvedItem[] = selectionMode === 'demo' && demoCategories.length > 0
     ? demoCategories.map((item, idx) => ({
@@ -3660,6 +3660,7 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
         name: item.name || `Danh mục ${idx + 1}`,
         displayImage: item.image,
         productCount: item.productCount ?? 0,
+        link: item.link,
       }))
     : resolvedCategories;
 
@@ -3690,8 +3691,9 @@ function ProductCategoriesSection({ config, brandColor, secondary, mode, title }
       showProductCount={showProductCount}
       spacing={spacing}
       cornerRadius={cornerRadius}
+      desktopColumns={normalizeProductCategoriesDesktopColumns(config.desktopColumns)}
       viewAllHref="/products"
-      getItemHref={(item) => item.slug ? `/products?category=${item.slug}` : '/products'}
+      getItemHref={(item) => item.link || (item.slug ? `/${item.slug}` : '/products')}
       renderImage={(item, className) => (
         item.displayImage
           ? <SiteImage src={item.displayImage} alt={item.name} className={className} />

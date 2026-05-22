@@ -703,7 +703,7 @@ export default function ServiceEditPage({ params }: { params: Promise<{ id: stri
                     {metaTitle.trim() || title || 'Tên dịch vụ'}
                   </div>
                   <div className="text-emerald-600 text-xs">
-                    /services/{slug || 'dich-vu'}
+                    /{selectedCategorySlug || 'chua-phan-loai'}/{slug || 'dich-vu'}
                   </div>
                   <div className="text-slate-600 text-xs mt-1 line-clamp-2">
                     {metaDescription.trim() || excerpt || 'Mô tả ngắn sẽ hiển thị tại đây.'}
@@ -831,7 +831,7 @@ export default function ServiceEditPage({ params }: { params: Promise<{ id: stri
             <Button
               type="button"
               variant="outline"
-              onClick={() => window.open(selectedCategorySlug ? `/${selectedCategorySlug}/${slug}` : `/services/${slug}`, '_blank')}
+              onClick={() => window.open(`/${selectedCategorySlug || 'chua-phan-loai'}/${slug}`, '_blank')}
               className="gap-2"
               disabled={!slug.trim()}
             >

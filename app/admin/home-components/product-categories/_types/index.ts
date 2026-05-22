@@ -8,11 +8,12 @@ import {
 } from '../../_shared/types/sectionSpacing';
 import type { HomeComponentCornerRadius } from '../../_shared/components/HomeComponentDisplaySettingsSection';
 
-export type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'marquee' | 'circular' | 'icon-grid' | 'mosaic' | 'compact-grid' | 'image-strip';
+export type ProductCategoriesStyle = 'grid' | 'carousel' | 'cards' | 'marquee' | 'circular' | 'icon-grid' | 'mosaic' | 'compact-grid' | 'image-strip' | 'grid-10' | 'grid-11';
 export type ProductCategoriesBrandMode = 'single' | 'dual';
 export type ProductCategoriesAlign = 'left' | 'center' | 'right';
 export type ProductCategoriesSpacing = SectionSpacing;
 export type ProductCategoriesCornerRadius = HomeComponentCornerRadius;
+export type ProductCategoriesDesktopColumns = 3 | 4;
 
 export interface CategoryConfigItem {
   id: number;
@@ -38,6 +39,7 @@ export interface ProductCategoriesResolvedItem {
   displayImage?: string;
   displayIcon?: string;
   productCount: number;
+  link?: string;
 }
 
 export type ProductCategoriesSelectionMode = 'real' | 'demo';
@@ -48,6 +50,7 @@ export interface DemoProductCategoryItem {
   image?: string;
   description?: string;
   productCount?: number;
+  link?: string;
 }
 
 export interface ProductCategoriesConfig {
@@ -72,6 +75,7 @@ export interface ProductCategoriesConfig {
   cornerRadius?: ProductCategoriesCornerRadius;
   noBorderRadius?: boolean;
   noVerticalMargin?: boolean;
+  desktopColumns?: ProductCategoriesDesktopColumns;
 }
 
 export const DEFAULT_PRODUCT_CATEGORIES_SPACING: ProductCategoriesSpacing = DEFAULT_SECTION_SPACING;
@@ -113,4 +117,9 @@ export const getProductCategoriesInnerCornerRadiusClassName = (value: ProductCat
   }
 
   return value === 'sm' ? 'rounded-md' : 'rounded-xl';
+};
+
+export const DEFAULT_PRODUCT_CATEGORIES_DESKTOP_COLUMNS: ProductCategoriesDesktopColumns = 3;
+export const normalizeProductCategoriesDesktopColumns = (value: unknown): ProductCategoriesDesktopColumns => {
+  return value === 4 ? 4 : DEFAULT_PRODUCT_CATEGORIES_DESKTOP_COLUMNS;
 };

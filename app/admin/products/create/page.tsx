@@ -143,6 +143,10 @@ function ProductCreateContent() {
     }
   }, [defaultStatus]);
 
+  const categoryData = categoriesData?.find((c) => c._id === categoryId);
+  const categorySlugPreview = categoryData?.slug || 'chua-phan-loai';
+
+
   useEffect(() => {
     if (defaultDigitalDeliveryType) {
       setDigitalDeliveryType(defaultDigitalDeliveryType);
@@ -618,7 +622,7 @@ function ProductCreateContent() {
                     {metaTitle.trim() || name || 'Tên sản phẩm'}
                   </div>
                   <div className="text-emerald-600 text-xs">
-                    /products/{slug || 'san-pham'}
+                    /{categorySlugPreview}/{slug || 'san-pham'}
                   </div>
                   <div className="text-slate-600 text-xs mt-1 line-clamp-2">
                     {metaDescription.trim() || stripHtml(description || '') || 'Mô tả ngắn sẽ hiển thị tại đây.'}

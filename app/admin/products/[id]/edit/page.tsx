@@ -862,7 +862,7 @@ function ProductEditContent({ params }: { params: Promise<{ id: string }> }) {
                     {metaTitle.trim() || name || 'Tên sản phẩm'}
                   </div>
                   <div className="text-emerald-600 text-xs">
-                    /products/{slug || 'san-pham'}
+                    /{selectedCategorySlug || 'chua-phan-loai'}/{slug || 'san-pham'}
                   </div>
                   <div className="text-slate-600 text-xs mt-1 line-clamp-2">
                     {metaDescription.trim() || stripHtml(description || '') || 'Mô tả ngắn sẽ hiển thị tại đây.'}

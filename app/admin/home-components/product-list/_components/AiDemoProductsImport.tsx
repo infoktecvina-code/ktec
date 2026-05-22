@@ -602,6 +602,7 @@ const CATEGORY_IMPORT_CONFIG: GenericImportConfig<DemoProductCategoryItem> = {
     { key: 'image', label: 'URL ảnh http/https hoặc path bắt đầu bằng /', kind: 'image', maxLength: 500 },
     { key: 'productCount', label: 'number, số sản phẩm', kind: 'number' },
     { key: 'description', label: 'string, tối đa 160 ký tự', maxLength: 160 },
+    { key: 'link', label: 'string, đường dẫn liên kết (VD: /dien-thoai-phu-kien, /khuyen-mai)', maxLength: 300 },
   ],
   imageKey: 'image',
   itemLabel: 'danh mục',
@@ -745,7 +746,7 @@ export const AiDemoProductCategoriesImport = ({ buttonLabel, ...props }: { butto
   );
 
   return (
-    <GenericAiDemoImport config={config} sample={'{\n  "categories": [\n    {\n      "name": "Thời trang nam",\n      "image": "https://images.unsplash.com/photo-1516257984-b1b4d707412e",\n      "productCount": 24,\n      "description": "Áo quần và phụ kiện nam hiện đại."\n    }\n  ]\n}'} {...props} />
+    <GenericAiDemoImport config={config} sample={'{\n  "categories": [\n    {\n      "name": "Thời trang nam",\n      "image": "https://images.unsplash.com/photo-1516257984-b1b4d707412e",\n      "productCount": 24,\n      "description": "Áo quần và phụ kiện nam hiện đại.",\n      "link": "/thoi-trang-nam"\n    }\n  ]\n}'} {...props} />
   );
 };
 
@@ -1063,7 +1064,7 @@ export const AiDemoHeroImport = ({ buttonLabel, heroStyle, ...props }: { buttonC
   );
 
   return (
-    <GenericAiDemoImport config={config} sample={'{\n  "slides": [\n    {\n      "url": "https://images.unsplash.com/photo-1556761175-4b46a572b786",\n      "link": "/products"\n    }\n  ]\n}'} {...props} />
+    <GenericAiDemoImport config={config} sample={'{\n  "slides": [\n    {\n      "url": "https://images.unsplash.com/photo-1556761175-4b46a572b786",\n      "link": "/dien-thoai-phu-kien"\n    }\n  ]\n}'} {...props} />
   );
 };
 

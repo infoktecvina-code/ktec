@@ -131,6 +131,7 @@ export const ProductCategoriesPreview = ({
           name: item.name || `Danh mục ${idx + 1}`,
           displayImage: item.image,
           productCount: item.productCount ?? 0,
+          link: item.link,
         }))
       : undefined;
 
@@ -186,8 +187,10 @@ export const ProductCategoriesPreview = ({
             showProductCount={config.showProductCount}
             spacing={config.spacing}
             cornerRadius={config.cornerRadius}
+            desktopColumns={config.desktopColumns}
             fontClassName={fontClassName}
             fontStyle={fontStyle}
+            getItemHref={(item) => item.link || `#`}
           />
         </BrowserFrame>
       </PreviewWrapper>

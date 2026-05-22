@@ -37,6 +37,9 @@ import {
   type ProductCategoriesSelectionMode,
   type ProductCategoriesSpacing,
   type ProductCategoriesStyle,
+  type ProductCategoriesDesktopColumns,
+  DEFAULT_PRODUCT_CATEGORIES_DESKTOP_COLUMNS,
+  normalizeProductCategoriesDesktopColumns,
 } from '../../_types';
 
 const COMPONENT_TYPE = 'ProductCategories';
@@ -108,6 +111,7 @@ export default function ProductCategoriesEditPage({
     demoCategories: DemoProductCategoryItem[];
     spacing: ProductCategoriesSpacing;
     cornerRadius: ProductCategoriesCornerRadius;
+    desktopColumns: ProductCategoriesDesktopColumns;
   } | null>(null);
 
   const {
@@ -136,6 +140,7 @@ export default function ProductCategoriesEditPage({
   const [demoCategories, setDemoCategories] = useState<DemoProductCategoryItem[]>([]);
   const [spacing, setSpacing] = useState<ProductCategoriesSpacing>(DEFAULT_PRODUCT_CATEGORIES_SPACING);
   const [cornerRadius, setCornerRadius] = useState<ProductCategoriesCornerRadius>(DEFAULT_PRODUCT_CATEGORIES_CORNER_RADIUS);
+  const [desktopColumns, setDesktopColumns] = useState<ProductCategoriesDesktopColumns>(DEFAULT_PRODUCT_CATEGORIES_DESKTOP_COLUMNS);
 
   useEffect(() => {
     if (component) {
@@ -167,6 +172,7 @@ export default function ProductCategoriesEditPage({
       const loadedDemoCategories = Array.isArray(config.demoCategories) ? sanitizeDemoCategories(config.demoCategories as DemoProductCategoryItem[]) : [];
       const loadedSpacing = normalizeProductCategoriesSpacing(config.spacing, config.noVerticalMargin);
       const loadedCornerRadius = normalizeProductCategoriesCornerRadius(config.cornerRadius, config.noBorderRadius);
+      const loadedDesktopColumns = normalizeProductCategoriesDesktopColumns(config.desktopColumns);
 
       resetproductCategoriesItems(categories);
       setProductCategoriesStyle(style);
@@ -185,6 +191,7 @@ export default function ProductCategoriesEditPage({
       setDemoCategories(loadedDemoCategories);
       setSpacing(loadedSpacing);
       setCornerRadius(loadedCornerRadius);
+      setDesktopColumns(loadedDesktopColumns);
       setInitialData({
         title: component.title,
         active: component.active,
@@ -205,6 +212,7 @@ export default function ProductCategoriesEditPage({
         demoCategories: loadedDemoCategories,
         spacing: loadedSpacing,
         cornerRadius: loadedCornerRadius,
+        desktopColumns: loadedDesktopColumns,
       });
       setHasChanges(false);
     }
@@ -245,6 +253,7 @@ export default function ProductCategoriesEditPage({
       || JSON.stringify(demoCategories) !== JSON.stringify(initialData.demoCategories)
       || spacing !== initialData.spacing
       || cornerRadius !== initialData.cornerRadius
+      || desktopColumns !== initialData.desktopColumns
       || customChanged
       || customFontChanged;
 
@@ -315,6 +324,7 @@ export default function ProductCategoriesEditPage({
           align: productCategoriesAlign,
           spacing,
           cornerRadius,
+          desktopColumns,
         };
 
       if (onSnapshotSave) {
@@ -365,6 +375,7 @@ export default function ProductCategoriesEditPage({
         demoCategories: sanitizedDemoCategories,
         spacing,
         cornerRadius,
+        desktopColumns,
       });
       setDemoCategories(sanitizedDemoCategories);
       setProductCategoriesSubheading(sanitizedSubtitle);
@@ -471,6 +482,8 @@ export default function ProductCategoriesEditPage({
           setSpacing={setSpacing}
           cornerRadius={cornerRadius}
           setCornerRadius={setCornerRadius}
+          desktopColumns={desktopColumns}
+          setDesktopColumns={setDesktopColumns}
           defaultExpanded={false}
         />
 
@@ -533,6 +546,7 @@ export default function ProductCategoriesEditPage({
               align: productCategoriesAlign,
               spacing,
               cornerRadius,
+              desktopColumns,
               }}
             title={title}
               brandColor={effectiveColors.primary}

@@ -100,6 +100,10 @@ export default function PostCreatePage() {
     return fields;
   }, [fieldsData]);
 
+  const categoryData = categoriesData?.find((c) => c._id === categoryId);
+  const categorySlugPreview = categoryData?.slug || 'chua-phan-loai';
+
+
   const hasMarkdownRender = enabledFields.has('markdownRender');
   const hasHtmlRender = enabledFields.has('htmlRender');
   const showAdvancedRenderCard = hasMarkdownRender || hasHtmlRender;
@@ -748,7 +752,7 @@ export default function PostCreatePage() {
                     {metaTitle.trim() || title || 'Tiêu đề bài viết'}
                   </div>
                   <div className="text-emerald-600 text-xs">
-                    /posts/{slug || 'bai-viet'}
+                    /{categorySlugPreview}/{slug || 'bai-viet'}
                   </div>
                   <div className="text-slate-600 text-xs mt-1 line-clamp-2">
                     {metaDescription.trim() || excerpt || 'Mô tả ngắn sẽ hiển thị tại đây.'}

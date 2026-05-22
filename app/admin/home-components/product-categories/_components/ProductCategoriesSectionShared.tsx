@@ -50,6 +50,7 @@ export interface ProductCategoriesSectionSharedProps {
   showProductCount?: boolean;
   spacing?: ProductCategoriesSpacing;
   cornerRadius?: ProductCategoriesCornerRadius;
+  desktopColumns?: 3 | 4;
   fontClassName?: string;
   fontStyle?: React.CSSProperties;
   previewCtaLabel?: string;
@@ -174,9 +175,10 @@ export function ProductCategoriesSectionShared({
   showProductCount = true,
   spacing = DEFAULT_PRODUCT_CATEGORIES_SPACING,
   cornerRadius = DEFAULT_PRODUCT_CATEGORIES_CORNER_RADIUS,
+  desktopColumns = 3,
   fontClassName,
   fontStyle,
-  viewAllHref = '/products',
+  viewAllHref = '#',
   getItemHref,
   renderImage,
 }: ProductCategoriesSectionSharedProps) {
@@ -842,6 +844,74 @@ export function ProductCategoriesSectionShared({
     );
   }
 
+  if (style === 'grid-10' || style === 'grid-11') {
+    const isDesktop4 = desktopColumns === 4;
+    const colsClass = context === 'preview'
+      ? (isDesktop4
+          ? { mobile: 'grid-cols-2', tablet: 'grid-cols-2', desktop: 'grid-cols-4' }[device]
+          : { mobile: 'grid-cols-1', tablet: 'grid-cols-3', desktop: 'grid-cols-3' }[device]
+        )
+      : (isDesktop4
+          ? 'grid-cols-2 md:grid-cols-2 lg:grid-cols-4'
+          : 'grid-cols-1 md:grid-cols-3 lg:grid-cols-3');
+
+    const gridGapClass = context === 'preview'
+      ? { mobile: 'gap-3', tablet: 'gap-4', desktop: 'gap-5' }[device]
+      : 'gap-3 md:gap-4 lg:gap-5';
+
+    return (
+      <section className={cn('w-full px-4 md:px-6', sectionVerticalSpacing, fontClassName)} style={fontStyle}>
+        <div className="mx-auto max-w-7xl">
+          {renderHeader(renderViewAllLink())}
+          <div className={cn('grid', gridGapClass, colsClass)}>
+            {items.map((item) => (
+              style === 'grid-10' ? (
+                <CategoryLink
+                  key={item.itemId}
+                  href={getItemHref?.(item)}
+                  context={context}
+                  className={cn('group flex h-full flex-col items-center justify-start bg-white p-3 text-center transition-colors hover:bg-slate-50 border shadow-sm hover:-translate-y-1 hover:shadow-md duration-300', cardRadiusClassName)}
+                  style={{ borderColor: colors.cardBorder }}
+                >
+                  <div className="mb-3 flex h-24 w-24 items-center justify-center overflow-hidden md:h-32 md:w-32">
+                    {renderVisual(item, 'h-full w-full object-contain', 38, 'h-full w-full object-contain transition-transform duration-300 group-hover:scale-105')}
+                  </div>
+                  <h3 className={cn('min-h-[2.5rem] break-words whitespace-normal font-medium leading-snug transition-colors', titleClassName)} style={{ color: colors.categoryNameText }}>
+                    {item.name}
+                  </h3>
+                  {showProductCount ? (
+                    <p className={cn('mt-1', countClassName)} style={{ color: colors.productCountText }}>{item.productCount} sản phẩm</p>
+                  ) : null}
+                </CategoryLink>
+              ) : (
+                <CategoryLink
+                  key={item.itemId}
+                  href={getItemHref?.(item)}
+                  context={context}
+                  className="group block h-full select-none"
+                >
+                  <article className={cn('flex h-full flex-col overflow-hidden bg-white p-2 text-center shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_20px_-3px_rgba(6,81,237,0.15)] md:p-3', cardRadiusClassName, showProductCount ? 'min-h-[208px] md:min-h-[244px]' : 'min-h-[176px] md:min-h-[208px]')}>
+                    <div className={cn('mb-3 flex aspect-square w-full items-center justify-center overflow-hidden bg-white p-0', innerRadiusClassName)}>
+                      {renderVisual(item, cn('h-[95%] w-[95%] object-cover transition-transform duration-500 group-hover:scale-110', innerRadiusClassName), 40)}
+                    </div>
+                    <div className={cn('mt-auto flex flex-col justify-start', showProductCount ? 'min-h-[56px]' : 'min-h-[32px]')}>
+                      <h3 className={cn('break-words whitespace-normal font-bold leading-tight', titleClassName)} style={{ color: colors.neutral.text }}>
+                        {item.name}
+                      </h3>
+                      {showProductCount ? (
+                        <p className={cn('mt-1', countClassName)} style={{ color: colors.productCountText }}>{item.productCount} sản phẩm</p>
+                      ) : null}
+                    </div>
+                  </article>
+                </CategoryLink>
+              )
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   if (style === 'image-strip') {
     return (
       <section className={cn('w-full px-4 md:px-6', sectionVerticalSpacing, fontClassName)} style={fontStyle}>
@@ -910,6 +980,8 @@ export const getProductCategoriesPreviewInfo = ({
     mosaic: `${Math.min(count, 9)} / 9 danh mục • Mosaic 9 ô • ${modeLabel}`,
     'compact-grid': `${count} danh mục • Grid card đồng bộ 2/3/4 cột • ${modeLabel}`,
     grid: `${count} danh mục • Ảnh/icon tròn 400×400px • ${modeLabel}`,
+    'grid-10': `${count} danh mục • Tương tự layout 4 • ${modeLabel}`,
+    'grid-11': `${count} danh mục • Tương tự layout 5 • ${modeLabel}`,
   };
 
   return map[style];
@@ -928,8 +1000,10 @@ export const ProductCategoriesPreviewHint = ({
     circular: '600×600px (1:1) • Ảnh vuông sắc nét cho grid premium card lớn.',
     'icon-grid': '80×80px • Ảnh sản phẩm cutout nền trắng, grid gọn gàng 8 cột.',
     mosaic: '9 danh mục • 4 ô trái + 1 ô lớn giữa + 4 ô phải; nếu nhiều hơn sẽ chỉ hiển thị 9.',
-    'compact-grid': '300×300px (1:1) • Card trắng đồng bộ, ảnh object-contain trong khung vuông; mobile 2 cột, tablet 3 cột, desktop 4 cột.',
-    grid: '400×400px (1:1) • Avatar tròn tinh tế, ưu tiên sản phẩm/icon rõ nền sáng.',
+    'compact-grid': '1:1 hoặc 3:4 • Card chứa ảnh + tên, hiển thị grid 2-4 cột đều đặn.',
+    grid: '400×400px (1:1) • Ảnh bo tròn hoàn toàn, thường dùng cho logo/icon danh mục.',
+    'grid-10': 'Layout dạng grid 10 tương tự Layout 4.',
+    'grid-11': 'Layout dạng grid 11 tương tự Layout 5.',
   };
 
   return (

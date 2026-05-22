@@ -7,7 +7,7 @@ import { ToggleSwitch } from '@/components/modules/shared';
 import { Button, Input, Label, cn } from '../../../components/ui';
 import { CategoryImageSelector } from '../../../components/CategoryImageSelector';
 import { SettingsImageUploader } from '../../../components/SettingsImageUploader';
-import type { CategoryConfigItem, DemoProductCategoryItem, ProductCategoriesCornerRadius, ProductCategoriesSelectionMode, ProductCategoriesSpacing, ProductCategoriesStyle } from '../_types';
+import type { CategoryConfigItem, DemoProductCategoryItem, ProductCategoriesCornerRadius, ProductCategoriesDesktopColumns, ProductCategoriesSelectionMode, ProductCategoriesSpacing, ProductCategoriesStyle } from '../_types';
 import { DEFAULT_DEMO_PRODUCT_CATEGORIES, getProductCategoriesCropAspectRatio } from '../_lib/constants';
 import { normalizeDemoImageSrc } from '../_lib/imageSrc';
 import { AiDemoProductCategoriesImport } from '../../product-list/_components/AiDemoProductsImport';
@@ -15,6 +15,7 @@ import { CollapsibleSubSection as SubSection } from '../../_shared/components/Co
 import { HomeComponentDisplaySettingsSection } from '../../_shared/components/HomeComponentDisplaySettingsSection';
 import { useFormSectionsState } from '../../_shared/hooks/useFormSectionsState';
 import { FormSectionsToggleAllButton } from '../../_shared/components/FormSectionsToggleAllButton';
+import { QuickRouteInput } from '../../_shared/components/QuickRouteInput';
 
 const ClearableInput = ({ value, onChange, className, ...rest }: React.ComponentProps<typeof Input> & { value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) => (
   <div className="relative">
@@ -41,6 +42,8 @@ export const ProductCategoriesForm = ({
   setSpacing,
   cornerRadius,
   setCornerRadius,
+  desktopColumns,
+  setDesktopColumns,
   defaultExpanded = true,
 }: {
   productCategoriesItems: CategoryConfigItem[];
@@ -61,6 +64,8 @@ export const ProductCategoriesForm = ({
   setSpacing?: (value: ProductCategoriesSpacing) => void;
   cornerRadius?: ProductCategoriesCornerRadius;
   setCornerRadius?: (value: ProductCategoriesCornerRadius) => void;
+  desktopColumns?: ProductCategoriesDesktopColumns;
+  setDesktopColumns?: (value: ProductCategoriesDesktopColumns) => void;
   defaultExpanded?: boolean;
 }) => {
   const { openSections, toggleSection, hasClosedSection, handleToggleAll } = useFormSectionsState(activeSections, defaultExpanded);
@@ -121,6 +126,28 @@ export const ProductCategoriesForm = ({
               </div>
               <ToggleSwitch enabled={productCategoriesShowCount} onChange={() => setProductCategoriesShowCount(!productCategoriesShowCount)} />
             </div>
+            {desktopColumns !== undefined && setDesktopColumns && (
+              <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700 md:col-span-2">
+                <Label className="text-sm">Số cột trên Desktop</Label>
+                <div className="flex gap-2">
+                  {[3, 4].map((col) => (
+                    <button
+                      key={col}
+                      type="button"
+                      onClick={() => setDesktopColumns(col as 3 | 4)}
+                      className={cn(
+                        'flex-1 rounded-md border py-2 text-sm font-medium transition-colors',
+                        desktopColumns === col
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-500/10 dark:text-blue-400'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800'
+                      )}
+                    >
+                      {col} cột
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </HomeComponentDisplaySettingsSection>
         ) : (
           <SubSection
@@ -236,7 +263,10 @@ export const ProductCategoriesForm = ({
                       ) : (
                         <div className="w-9 h-9 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center shrink-0"><Package size={12} className="text-slate-400" /></div>
                       )}
-                      <ClearableInput placeholder="Tên danh mục *" className="h-8 flex-1 text-xs min-w-0" value={item.name} onChange={(e) => updateDemoItem(item.id, { name: e.target.value })} />
+                      <div className="flex-1 flex flex-col gap-2 min-w-0">
+                        <ClearableInput placeholder="Tên danh mục *" className="h-8 text-xs min-w-0" value={item.name} onChange={(e) => updateDemoItem(item.id, { name: e.target.value })} />
+                        <QuickRouteInput placeholder="Liên kết khi click *" value={item.link ?? ''} onChangeValue={(val) => updateDemoItem(item.id, { link: val })} />
+                      </div>
                       <Input placeholder="SL" type="number" className="h-8 w-16 text-xs shrink-0" value={item.productCount ?? ''} onChange={(e) => updateDemoItem(item.id, { productCount: Number.parseInt(e.target.value) || 0 })} />
                       <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-500" onClick={() => removeDemoItem(item.id)}><Trash2 size={13} /></Button>
                     </div>
