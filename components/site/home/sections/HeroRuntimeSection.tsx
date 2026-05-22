@@ -318,12 +318,12 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
             <div className="grid w-full max-w-full grid-cols-3 gap-[10px] px-3">
               <div className="col-span-3 overflow-hidden">
                 <div className="relative">
+                  <h1 className="sr-only">{content.heading || 'Trang chủ'}</h1>
                   <div
                     className={cn('relative flex w-full select-none items-center overflow-hidden bg-white', cornerRadiusClassName)}
                     role="toolbar"
                     ref={heroEmblaRef}
                   >
-                    <h1 className="sr-only">{content.heading || 'Trang chủ'}</h1>
                     <div className="flex h-full w-full">
                       {slides.map((slide, idx) => {
                         const shouldLoad = isLikelyVisibleSlide(idx, emblaCurrentSlide, slides.length);
