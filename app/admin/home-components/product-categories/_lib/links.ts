@@ -1,6 +1,5 @@
 'use client';
 
-import type { CategoryConfigItem } from '../_types';
 
 export const getDefaultCategoryLink = (slug?: string) => slug ? `/products?category=${slug}` : '/products';
 

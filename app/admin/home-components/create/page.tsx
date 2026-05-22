@@ -205,7 +205,7 @@ function ComponentCard({ type, count }: { type: ComponentType; count: number }) 
           onClick={(e) => {
             if (shouldWarn) {
               e.preventDefault();
-              import('sonner').then(({ toast }) => {
+              void import('sonner').then(({ toast }) => {
                 toast.error(`Chỉ được phép tạo 1 ${type.label.toLowerCase()} trên trang.`);
               });
             }

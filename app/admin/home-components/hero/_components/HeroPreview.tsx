@@ -106,7 +106,6 @@ export const HeroPreview = ({
 }) => {
   const { device, setDevice } = usePreviewDevice();
   const [currentSlide, setCurrentSlide] = useState(0);
-  const touchStartX = useRef<number | null>(null);
   const previewStyle = selectedStyle ?? 'slider';
   const activeSlideCount = previewStyle === 'bento'
     ? Math.min(slides.length, 4)
@@ -182,30 +181,7 @@ export const HeroPreview = ({
     setCurrentSlide(index);
   };
   const getSlideKey = (slide: { id?: number | string; image?: string }, index: number) => `${slide.id ?? 'slide'}-${index}-${slide.image ?? ''}`;
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    touchStartX.current = event.touches[0]?.clientX ?? null;
-  };
-  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const startX = touchStartX.current;
-    const endX = event.changedTouches[0]?.clientX;
-    touchStartX.current = null;
 
-    if (device !== 'mobile' || slides.length <= 1 || startX == null || endX == null) {
-      return;
-    }
-
-    const deltaX = endX - startX;
-    if (Math.abs(deltaX) < 40) {
-      return;
-    }
-
-    if (deltaX < 0) {
-      nextSlide();
-      return;
-    }
-
-    prevSlide();
-  };
 
   const renderSlideWithBlur = (slide: { image: string; mediaType?: 'image' | 'video' }, idx: number) => {
     if (slide.mediaType === 'video') {

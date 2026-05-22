@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Bot, Database, GripVertical, Package, Plus, Trash2, X } from 'lucide-react';
+import { Bot, Database, GripVertical, Package, Plus, Trash2 } from 'lucide-react';
 import { ToggleSwitch } from '@/components/modules/shared';
 import { Button, Input, Label, cn } from '../../../components/ui';
 import { CategoryImageSelector } from '../../../components/CategoryImageSelector';
@@ -18,16 +18,6 @@ import { useDemoItemList } from '../../_shared/hooks/useDemoItemList';
 import { DemoItemRowShell } from '../../_shared/components/DemoItemRowShell';
 import { DemoPrimaryFields } from '../../_shared/components/DemoPrimaryFields';
 
-const ClearableInput = ({ value, onChange, className, ...rest }: React.ComponentProps<typeof Input> & { value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) => (
-  <div className="relative">
-    <Input {...rest} value={value} onChange={onChange} className={cn(className, value && 'pr-7')} />
-    {value && (
-      <button type="button" className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700" onClick={() => onChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>)}>
-        <X size={12} />
-      </button>
-    )}
-  </div>
-);
 
 const activeSections = ['settings', 'categories'];
 

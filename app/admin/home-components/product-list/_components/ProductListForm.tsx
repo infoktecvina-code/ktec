@@ -498,7 +498,7 @@ export const ProductListForm = ({
                     key={item.id}
                     index={index}
                     image={item.image}
-                    onRemove={() => void removeDemoItem(item.id)}
+                    onRemove={() =>  removeDemoItem(item.id)}
                     placeholderIcon={<Package size={12} />}
                     footer={
                       <div className="grid grid-cols-2 gap-2">

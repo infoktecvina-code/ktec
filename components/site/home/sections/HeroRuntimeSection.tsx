@@ -112,7 +112,6 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
   const cornerRadiusClassName = getHeroCornerRadiusClassName(normalizeHeroCornerRadius(config.cornerRadius, config.noBorderRadius));
   const sectionSpacingClassName = getSectionSpacingClassName(normalizeHeroSpacing(config.spacing));
   const [currentSlide, setCurrentSlide] = React.useState(0);
-  const touchStartX = React.useRef<number | null>(null);
   const primaryHref = content.primaryButtonLink || slides[currentSlide]?.link || '#';
   const secondaryHref = content.secondaryButtonLink || '#';
   const sliderColors = getSliderColors(brandColor, secondary, mode);
@@ -242,31 +241,7 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
     return <SiteImage src={slide.image} alt="" {...imgProps} />;
   };
 
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    touchStartX.current = event.touches[0]?.clientX ?? null;
-  };
 
-  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const startX = touchStartX.current;
-    const endX = event.changedTouches[0]?.clientX;
-    touchStartX.current = null;
-
-    if (activeSlideCount <= 1 || startX == null || endX == null) {
-      return;
-    }
-
-    const deltaX = endX - startX;
-    if (Math.abs(deltaX) < 40) {
-      return;
-    }
-
-    if (deltaX < 0) {
-      setCurrentSlide((prev) => (prev + 1) % activeSlideCount);
-      return;
-    }
-
-    setCurrentSlide((prev) => prev === 0 ? activeSlideCount - 1 : prev - 1);
-  };
 
   if (style === 'slider') {
     return renderWithSpacing(
