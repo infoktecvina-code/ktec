@@ -379,7 +379,7 @@ function ServicesContent() {
         {/* Header */}
         <div className="text-center mb-6">
           <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>
-            Dịch vụ của chúng tôi
+            {activeCategory && categoryMap ? categoryMap.get(activeCategory as any) ?? 'Dịch vụ của chúng tôi' : 'Dịch vụ của chúng tôi'}
           </h1>
         </div>
 

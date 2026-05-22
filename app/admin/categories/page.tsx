@@ -12,6 +12,7 @@ import { BulkActionBar, ColumnToggle, generatePaginationItems, SelectCheckbox, S
 import { ModuleGuard } from '../components/ModuleGuard';
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { usePersistedPageSize } from '../components/usePersistedPageSize';
+import { buildCategoryPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 
 export default function CategoriesListPage() {
   return (
@@ -26,6 +27,8 @@ function CategoriesContent() {
   const categoriesAllData = useQuery(api.productCategories.listAll, { limit: 1000 });
   const featuresData = useQuery(api.admin.modules.listModuleFeatures, { moduleKey: 'products' });
   const deleteCategory = useMutation(api.productCategories.remove);
+  const routeModeSetting = useQuery(api.settings.getValue, { key: 'ia_route_mode', defaultValue: 'unified' });
+  const routeMode = useMemo(() => normalizeRouteMode(routeModeSetting), [routeModeSetting]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -260,7 +263,7 @@ function CategoriesContent() {
   };
 
   const openFrontend = (slug: string) => {
-    window.open(`/products?category=${encodeURIComponent(slug)}`, '_blank');
+    window.open(buildCategoryPath({ categorySlug: slug, mode: routeMode, moduleKey: 'products' }), '_blank');
   };
 
   return (

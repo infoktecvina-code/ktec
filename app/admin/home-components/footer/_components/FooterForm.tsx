@@ -27,6 +27,7 @@ import { getFooterLayoutColors } from '../_lib/colors';
 import { generateFooterConfigFromData } from '../_lib/auto-generate';
 import type { FooterBrandMode, FooterConfig, FooterColumn, FooterLogoBackgroundStyle, FooterSocialLink } from '../_types';
 import { AiDemoFooterImport } from '../../product-list/_components/AiDemoProductsImport';
+import { buildCategoryPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 
 interface FooterFormProps {
   value: FooterConfig;
@@ -164,6 +165,8 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
   const productCategories = useQuery(api.productCategories.listActive);
   const postCategories = useQuery(api.postCategories.listActive, { limit: 100 });
   const serviceCategories = useQuery(api.serviceCategories.listActive, { limit: 100 });
+  const routeModeSetting = useQuery(api.settings.getValue, { key: 'ia_route_mode', defaultValue: 'unified' });
+  const routeMode = useMemo(() => normalizeRouteMode(routeModeSetting), [routeModeSetting]);
 
   const columnsWithId = useMemo<FooterColumn[]>(() => value.columns.map((column, index) => ({
     ...column,
@@ -231,7 +234,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
           group: 'Danh mục',
           label: category.name,
           source: 'products',
-          url: `/products?category=${category.slug}`,
+          url: buildCategoryPath({ categorySlug: category.slug, mode: routeMode, moduleKey: 'products' }),
         });
       });
     }
@@ -242,7 +245,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
           group: 'Danh mục',
           label: category.name,
           source: 'posts',
-          url: `/posts?catpost=${category.slug}`,
+          url: buildCategoryPath({ categorySlug: category.slug, mode: routeMode, moduleKey: 'posts' }),
         });
       });
     }
@@ -253,7 +256,7 @@ export function FooterForm({ value, onChange, primary, secondary, mode, defaultE
           group: 'Danh mục',
           label: category.name,
           source: 'services',
-          url: `/services?category=${category.slug}`,
+          url: buildCategoryPath({ categorySlug: category.slug, mode: routeMode, moduleKey: 'services' }),
         });
       });
     }

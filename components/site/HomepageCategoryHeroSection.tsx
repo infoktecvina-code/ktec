@@ -26,7 +26,7 @@ import { getHomepageCategoryHeroColors, type HomepageCategoryHeroTokens } from '
 import { getHomepageCategoryHeroIcon } from '@/app/admin/home-components/homepage-category-hero/_lib/icon-options';
 import { autoGenerateHomepageCategoryHeroMenu, buildCategoryAggregateMap } from '@/app/admin/home-components/homepage-category-hero/_lib/auto-generate';
 import { ChevronDown, ChevronLeft, ChevronRight, Package } from 'lucide-react';
-import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { buildCategoryPath, buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 import { getSectionSpacingClassName, normalizeSectionSpacing } from '@/app/admin/home-components/_shared/types/sectionSpacing';
 
 type ResolvedCategory = {
@@ -521,7 +521,7 @@ export function HomepageCategoryHeroSection({
   const resolveCategoryLink = (category?: HomepageCategoryData) => {
     if (!category) {return '#';}
     const slug = category.slug ?? category._id;
-    return `/products?category=${slug}`;
+    return buildCategoryPath({ categorySlug: slug, mode: routeMode, moduleKey: 'products' });
   };
 
   const resolveAllProductsLink = () => resolvedConfig.ctaUrl || '/products';

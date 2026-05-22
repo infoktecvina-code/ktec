@@ -8,7 +8,7 @@ import { ArrowLeft, ArrowRight, Calendar, ChevronRight, Clock, Copy, Eye, Image 
 import type { Id } from '@/convex/_generated/dataModel';
 import type { ServiceDetailColors } from './_lib/colors';
 import { RichContent, withFormatMarker } from '@/components/common/RichContent';
-import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { buildCategoryPath, buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 
 export interface ServiceDetailData {
   _id: Id<"services">;
@@ -211,7 +211,7 @@ export function ClassicStyle({ service, brandColor: _brandColor, tokens, related
                 )}
                 {service.categoryName && (
                   <Link 
-                    href={`/services?category=${service.categoryId}`}
+                    href={buildCategoryPath({ categorySlug: categorySlugMap?.get(service.categoryId) ?? '', mode: routeMode ?? 'unified', moduleKey: 'services' })}
                     className="px-3 py-1 text-sm font-medium rounded-full border transition-colors"
                     style={{ backgroundColor: tokens.categoryBadgeBg, color: tokens.categoryBadgeText, borderColor: tokens.categoryBadgeBorder }}
                   >
@@ -413,12 +413,13 @@ export function ModernStyle({ service, brandColor: _brandColor, tokens, relatedS
                 </span>
               )}
               {service.categoryName && (
-                <span
-                  className="px-3 py-1 border text-xs font-medium rounded-md"
+                <Link
+                  href={buildCategoryPath({ categorySlug: categorySlugMap?.get(service.categoryId) ?? '', mode: routeMode ?? 'unified', moduleKey: 'services' })}
+                  className="px-3 py-1 border text-xs font-medium rounded-md transition-opacity hover:opacity-80"
                   style={{ color: tokens.categoryBadgeText, backgroundColor: tokens.categoryBadgeBg, borderColor: tokens.categoryBadgeBorder }}
                 >
                   {service.categoryName}
-                </span>
+                </Link>
               )}
             </div>
 
@@ -601,12 +602,13 @@ export function MinimalStyle({ service, brandColor: _brandColor, tokens, related
               </span>
             )}
             {service.categoryName && (
-              <span 
-                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold"
+              <Link 
+                href={buildCategoryPath({ categorySlug: categorySlugMap?.get(service.categoryId) ?? '', mode: routeMode ?? 'unified', moduleKey: 'services' })}
+                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition-opacity hover:opacity-80"
                 style={{ backgroundColor: tokens.categoryBadgeBg, color: tokens.categoryBadgeText, borderColor: tokens.categoryBadgeBorder }}
               >
                 {service.categoryName}
-              </span>
+              </Link>
             )}
           </div>
 

@@ -786,7 +786,9 @@ function ProductsContent() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>Sản phẩm</h1>
+            <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>
+              {activeCategory && categoryMap ? categoryMap.get(activeCategory as any) ?? 'Sản phẩm' : 'Sản phẩm'}
+            </h1>
           </div>
 
         <MobileProductsFilters
@@ -1334,12 +1336,14 @@ function MobileProductsFilters({
   );
 }
 
-function CatalogLayout({ isLoadingProducts, postsPerPage, products, categories, selectedCategory, onCategoryChange, searchQuery, onSearchChange, sortBy, onSortChange, tokens, showPrice, showSalePrice, showStock, saleMode, totalCount, paginationNode, showWishlistButton, showAddToCartButton, showBuyNowButton, buyNowLabel, showPromotionBadge, wishlistIdSet, onToggleWishlist, onAddToCart, onBuyNow, canUseWishlist, imageAspectRatioStyle, getDetailHref }: LayoutProps) {
+function CatalogLayout({ isLoadingProducts, postsPerPage, products, categories, categoryMap, selectedCategory, onCategoryChange, searchQuery, onSearchChange, sortBy, onSortChange, tokens, showPrice, showSalePrice, showStock, saleMode, totalCount, paginationNode, showWishlistButton, showAddToCartButton, showBuyNowButton, buyNowLabel, showPromotionBadge, wishlistIdSet, onToggleWishlist, onAddToCart, onBuyNow, canUseWishlist, imageAspectRatioStyle, getDetailHref }: LayoutProps) {
   return (
     <div className="py-8 md:py-12 px-4">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>Sản phẩm</h1>
+          <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>
+            {selectedCategory && categoryMap ? categoryMap.get(selectedCategory as any) ?? 'Sản phẩm' : 'Sản phẩm'}
+          </h1>
         </div>
 
         <MobileProductsFilters
@@ -1518,7 +1522,9 @@ function ListLayout({ isLoadingProducts, postsPerPage, products, categories, cat
     <div className="py-8 md:py-12 px-4">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>Sản phẩm</h1>
+          <h1 className="text-3xl md:text-4xl font-bold" style={{ color: tokens.headingColor }}>
+            {selectedCategory && categoryMap ? categoryMap.get(selectedCategory as any) ?? 'Sản phẩm' : 'Sản phẩm'}
+          </h1>
         </div>
 
         <MobileProductsFilters

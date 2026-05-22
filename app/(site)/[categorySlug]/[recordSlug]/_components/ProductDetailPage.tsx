@@ -20,7 +20,7 @@ import {
   type ProductImageAspectRatio,
 } from '@/components/site/products/detail/_lib/image-aspect-ratio';
 import { resolveProductImageAspectRatio } from '@/lib/products/image-aspect-ratio';
-import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { buildCategoryPath, buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 import { ProductImageFrameOverlay, useProductFrameConfig } from '@/components/shared/ProductImageFrameBox';
 import { RichContent, withFormatMarker } from '@/components/common/RichContent';
 import { useCustomerAuth } from '@/app/(site)/auth/context';
@@ -1888,7 +1888,7 @@ function ClassicStyle({
           <nav className="flex items-center gap-1 text-[11px] md:hidden" style={{ color: tokens.breadcrumbText }}>
             {product.categorySlug && product.categoryName ? (
               <>
-                <Link href={`/products?category=${product.categorySlug}`} className="transition-colors">{product.categoryName}</Link>
+                <Link href={buildCategoryPath({ categorySlug: product.categorySlug, mode: routeMode, moduleKey: 'products' })} className="transition-colors">{product.categoryName}</Link>
                 <ChevronRight size={10} />
               </>
             ) : (
@@ -1906,7 +1906,7 @@ function ClassicStyle({
             <ChevronRight size={14} />
             {product.categorySlug && (
               <>
-                <Link href={`/products?category=${product.categorySlug}`} className="transition-colors">{product.categoryName}</Link>
+                <Link href={buildCategoryPath({ categorySlug: product.categorySlug, mode: routeMode, moduleKey: 'products' })} className="transition-colors">{product.categoryName}</Link>
                 <ChevronRight size={14} />
               </>
             )}
@@ -1973,7 +1973,7 @@ function ClassicStyle({
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-2 md:mb-4">
               <Link
-                href={`/products?category=${product.categorySlug}`}
+                href={buildCategoryPath({ categorySlug: product.categorySlug ?? '', mode: routeMode, moduleKey: 'products' })}
                 className="inline-block px-3 py-1 text-xs md:text-sm font-medium rounded-full transition-colors hover:opacity-80"
                 style={{ backgroundColor: tokens.categoryBadgeBg, color: tokens.categoryBadgeText }}
               >
@@ -2356,7 +2356,7 @@ function ModernStyle({
             <div className="md:hidden flex items-center gap-1 text-[11px] truncate" style={{ color: tokens.breadcrumbText }}>
               {product.categorySlug && product.categoryName ? (
                 <>
-                  <Link href={`/products?category=${product.categorySlug}`} className="transition-colors">{product.categoryName}</Link>
+                  <Link href={buildCategoryPath({ categorySlug: product.categorySlug, mode: routeMode, moduleKey: 'products' })} className="transition-colors">{product.categoryName}</Link>
                   <ChevronRight size={10} />
                 </>
               ) : (
@@ -2900,7 +2900,7 @@ function MinimalStyle({
           <nav className="flex items-center gap-1 text-[11px] md:hidden" style={{ color: tokens.breadcrumbText }}>
             {product.categorySlug && product.categoryName ? (
               <>
-                <Link href={`/products?category=${product.categorySlug}`} className="transition-colors">{product.categoryName}</Link>
+                <Link href={buildCategoryPath({ categorySlug: product.categorySlug, mode: routeMode, moduleKey: 'products' })} className="transition-colors">{product.categoryName}</Link>
                 <ChevronRight size={10} />
               </>
             ) : (
@@ -3604,7 +3604,7 @@ function RelatedProductsSection({
           </p>
         </div>
         {categorySlug && (
-          <Link href={`/products?category=${categorySlug}`} className="text-sm font-medium flex items-center gap-1 transition-colors hover:opacity-80" style={{ color: brandColor }}>
+          <Link href={buildCategoryPath({ categorySlug: categorySlug!, mode: routeMode, moduleKey: 'products' })} className="text-sm font-medium flex items-center gap-1 transition-colors hover:opacity-80" style={{ color: brandColor }}>
             Xem tất cả <ChevronRight size={16} />
           </Link>
         )}

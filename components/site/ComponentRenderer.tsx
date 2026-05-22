@@ -14,7 +14,7 @@ import { resolveTypeOverrideFont } from '@/app/admin/home-components/_shared/lib
 import { getHomeComponentPriceLabel, resolveSaleMode } from '@/app/admin/home-components/_shared/lib/productPrice';
 import { getSectionSpacingClassName, normalizeSectionSpacing } from '@/app/admin/home-components/_shared/types/sectionSpacing';
 import { getProductImageAspectRatioCssValue, resolveProductImageAspectRatio } from '@/lib/products/image-aspect-ratio';
-import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { buildCategoryPath, buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 import { parseHighlightedHeading } from '@/lib/utils/heroText';
 import {
   getBentoColors,
@@ -3922,7 +3922,7 @@ function CategoryProductsSection({
                 <h2 className="text-xl md:text-2xl font-bold" style={{ color: colors.heading }}>{section.category.name}</h2>
                 {showViewAll && (
                   <a 
-                    href={`/products?category=${section.category.slug ?? section.category._id}`}
+                    href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                     className="text-sm font-medium flex items-center gap-1 px-3 py-1.5 rounded-lg border transition-colors"
                     style={{ borderColor: colors.buttonBorder, color: colors.buttonText }}
                   >
@@ -3987,7 +3987,7 @@ function CategoryProductsSection({
               <div className="flex items-center gap-2">
                 {showViewAll && (
                   <a
-                    href={`/products?category=${section.category.slug ?? section.category._id}`}
+                    href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                     className="text-sm font-medium flex items-center gap-1"
                     style={{ color: colors.buttonText }}
                   >
@@ -4107,7 +4107,7 @@ function CategoryProductsSection({
                   </div>
                   {showViewAll && (
                     <a 
-                      href={`/products?category=${section.category.slug ?? section.category._id}`}
+                      href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                       className="text-sm font-medium flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors"
                       style={{ backgroundColor: colors.buttonBackground, border: `1px solid ${colors.buttonBorder}`, color: colors.buttonText }}
                     >
@@ -4161,7 +4161,7 @@ function CategoryProductsSection({
                   </div>
                   {showViewAll && (
                     <a 
-                      href={`/products?category=${section.category.slug ?? section.category._id}`}
+                      href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                       className="text-sm font-medium flex items-center gap-1.5 px-4 py-2 rounded-full transition-all hover:shadow-md"
                       style={{ backgroundColor: colors.buttonBackground, border: `1px solid ${colors.buttonBorder}`, color: colors.buttonText }}
                     >
@@ -4294,7 +4294,7 @@ function CategoryProductsSection({
                   </div>
                   {showViewAll && (
                     <a 
-                      href={`/products?category=${section.category.slug ?? section.category._id}`}
+                      href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                       className="font-semibold flex items-center gap-2 transition-all hover:gap-3"
                       style={{ color: colors.buttonText }}
                     >
@@ -4463,7 +4463,7 @@ function CategoryProductsSection({
                 </div>
                 {showViewAll && (
                   <a
-                    href={`/products?category=${section.category.slug ?? section.category._id}`}
+                    href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                     aria-label="Xem thêm - Xem danh mục"
                     className={cn(
                       'group flex h-9 shrink-0 items-center justify-center self-start rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase leading-4 tracking-[0.12em] transition-colors hover:bg-[var(--wine-button-hover-bg)] hover:text-[var(--wine-button-hover-text)] sm:self-auto md:h-10 md:px-4 md:text-xs md:tracking-[0.16em]',
@@ -4593,7 +4593,7 @@ function CategoryProductsSection({
               </div>
               {showViewAll && (
                 <a 
-                  href={`/products?category=${section.category.slug ?? section.category._id}`}
+                  href={buildCategoryPath({ categorySlug: section.category.slug ?? section.category._id, mode: routeMode, moduleKey: 'products' })}
                   className="group flex items-center gap-2 text-sm font-medium transition-colors"
                       style={{ color: colors.buttonText }}
                 >

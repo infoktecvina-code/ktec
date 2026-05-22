@@ -12,7 +12,7 @@ import { RichContent, withFormatMarker } from '@/components/common/RichContent';
 import { Button, Card, CardContent } from '@/app/admin/components/ui';
 import { ArrowLeft, Calendar, Check, ChevronRight, Clock, Eye, FileText, Home, Link as LinkIcon, MessageSquare, Reply, Send, Share2, ThumbsUp, User } from 'lucide-react';
 import type { Id } from '@/convex/_generated/dataModel';
-import { buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
+import { buildCategoryPath, buildDetailPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 
 
 
@@ -223,6 +223,12 @@ export default function PostDetailPage({ params }: PageProps) {
     recordSlug: relatedPost.slug,
   });
 
+  const getCategoryHref = () => buildCategoryPath({
+    categorySlug: (post.categoryId ? categorySlugMap.get(post.categoryId) : undefined) ?? '',
+    mode: routeMode,
+    moduleKey: 'posts',
+  });
+
   const handleSubmitComment = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!post || !commentName.trim() || !commentContent.trim()) {return;}
@@ -337,6 +343,7 @@ export default function PostDetailPage({ params }: PageProps) {
       {style === 'classic' && (
         <ClassicStyle
           getDetailHref={getPostDetailHref}
+          getCategoryHref={getCategoryHref}
           post={postData}
           brandColor={brandColor}
           secondaryColor={secondaryColor}
@@ -354,6 +361,7 @@ export default function PostDetailPage({ params }: PageProps) {
       {style === 'modern' && (
         <ModernStyle
           getDetailHref={getPostDetailHref}
+          getCategoryHref={getCategoryHref}
           post={postData}
           brandColor={brandColor}
           secondaryColor={secondaryColor}
@@ -371,6 +379,7 @@ export default function PostDetailPage({ params }: PageProps) {
       {style === 'minimal' && (
         <MinimalStyle
           getDetailHref={getPostDetailHref}
+          getCategoryHref={getCategoryHref}
           post={postData}
           brandColor={brandColor}
           secondaryColor={secondaryColor}
@@ -437,10 +446,11 @@ interface StyleProps {
   tags: string[];
   commentsSection?: React.ReactNode;
   getDetailHref: (post: RelatedPost) => string;
+  getCategoryHref: () => string;
 }
 
 // Style 1: Classic - Truyền thống với sidebar
-function ClassicStyle({ post, brandColor, secondaryColor, relatedPosts, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref }: StyleProps) {
+function ClassicStyle({ post, brandColor, secondaryColor, relatedPosts, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref, getCategoryHref }: StyleProps) {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [isCopied, setIsCopied] = useState(false);
   const { isBroken, markBroken } = useImageFallback();
@@ -491,6 +501,14 @@ function ClassicStyle({ post, brandColor, secondaryColor, relatedPosts, showAuth
             <li>
               <Link href="/posts" className="hover:text-foreground transition-colors">Bài viết</Link>
             </li>
+            {post.categoryName && post.categoryName !== 'Tin tức' && (
+              <>
+                <li><ChevronRight className="h-4 w-4" /></li>
+                <li>
+                  <Link href={getCategoryHref()} className="hover:text-foreground transition-colors">{post.categoryName}</Link>
+                </li>
+              </>
+            )}
             <li><ChevronRight className="h-4 w-4" /></li>
             <li className="font-medium text-foreground truncate max-w-[150px] sm:max-w-xs">
               {post.title}
@@ -506,12 +524,13 @@ function ClassicStyle({ post, brandColor, secondaryColor, relatedPosts, showAuth
               </h1>
 
               <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground pt-2">
-                <span
-                  className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold"
+                <Link
+                  href={getCategoryHref()}
+                  className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold hover:opacity-80 transition-opacity"
                   style={{ backgroundColor: `${accentColor}15`, borderColor: `${accentColor}30`, color: accentColor }}
                 >
                   {post.categoryName}
-                </span>
+                </Link>
                 {showAuthor && authorName && (
                   <>
                     <span className="text-muted-foreground/40">•</span>
@@ -663,7 +682,7 @@ function ClassicStyle({ post, brandColor, secondaryColor, relatedPosts, showAuth
 }
 
 // Style 2: Modern - Medium/Substack inspired - Focus on typography and reading experience
-function ModernStyle({ post, brandColor, secondaryColor, relatedPosts, enabledFields, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref }: StyleProps) {
+function ModernStyle({ post, brandColor, secondaryColor, relatedPosts, enabledFields, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref, getCategoryHref }: StyleProps) {
   const resolvedContent = useMemo(() => resolvePostContent(post), [post]);
   const resolvedContentLength = useMemo(() => resolvePostContentLength(post), [post]);
   const readingTime = Math.max(1, Math.ceil(resolvedContentLength / 1000));
@@ -699,6 +718,16 @@ function ModernStyle({ post, brandColor, secondaryColor, relatedPosts, enabledFi
                   Bài viết
                 </Link>
               </li>
+              {post.categoryName && post.categoryName !== 'Tin tức' && (
+                <>
+                  <li><ChevronRight className="h-4 w-4 text-muted-foreground/50" /></li>
+                  <li>
+                    <Link href={getCategoryHref()} className="hover:text-foreground transition-colors">
+                      {post.categoryName}
+                    </Link>
+                  </li>
+                </>
+              )}
               <li><ChevronRight className="h-4 w-4 text-muted-foreground/50" /></li>
               <li className="font-medium text-foreground truncate max-w-[200px] md:max-w-[360px]">
                 {post.title}
@@ -723,12 +752,13 @@ function ModernStyle({ post, brandColor, secondaryColor, relatedPosts, enabledFi
             </h1>
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <span
-                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
+              <Link
+                href={getCategoryHref()}
+                className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:opacity-80 transition-opacity"
                 style={{ backgroundColor: `${accentColor}10`, borderColor: `${accentColor}25`, color: accentColor }}
               >
                 {post.categoryName}
-              </span>
+              </Link>
               {showAuthor && authorName && (
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4" />
@@ -868,7 +898,7 @@ function ModernStyle({ post, brandColor, secondaryColor, relatedPosts, enabledFi
 }
 
 // Style 3: Minimal - Tối giản, tập trung nội dung
-function MinimalStyle({ post, brandColor, secondaryColor, relatedPosts, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref }: StyleProps) {
+function MinimalStyle({ post, brandColor, secondaryColor, relatedPosts, showAuthor, authorName, showTags, showShare, showThumbnail, tags, commentsSection, getDetailHref, getCategoryHref }: StyleProps) {
   const [isCopied, setIsCopied] = useState(false);
   const resolvedContent = useMemo(() => resolvePostContent(post), [post]);
   const resolvedContentLength = useMemo(() => resolvePostContentLength(post), [post]);
@@ -940,9 +970,9 @@ function MinimalStyle({ post, brandColor, secondaryColor, relatedPosts, showAuth
                       {post.title}
                     </h1>
                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                      <span className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: accentColor }}>
+                      <Link href={getCategoryHref()} className="text-xs font-semibold uppercase tracking-[0.2em] hover:opacity-80 transition-opacity" style={{ color: accentColor }}>
                         {post.categoryName}
-                      </span>
+                      </Link>
                       {showAuthor && authorName && (
                         <div className="flex items-center gap-2">
                           <User className="h-4 w-4" />
@@ -1011,9 +1041,9 @@ function MinimalStyle({ post, brandColor, secondaryColor, relatedPosts, showAuth
                   {post.title}
                 </h1>
                 <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                  <span className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: accentColor }}>
+                  <Link href={getCategoryHref()} className="text-xs font-semibold uppercase tracking-[0.2em] hover:opacity-80 transition-opacity" style={{ color: accentColor }}>
                     {post.categoryName}
-                  </span>
+                  </Link>
                   {showAuthor && authorName && (
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4" />

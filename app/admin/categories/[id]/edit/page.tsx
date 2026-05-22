@@ -11,6 +11,7 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getAdminMutationErrorMessage } from '@/app/admin/lib/mutation-error';
 import { Badge, Button, Card, CardContent, Input, Label, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn } from '../../../components/ui';
+import { buildCategoryPath, normalizeRouteMode } from '@/lib/ia/route-mode';
 
 const MODULE_KEY = 'productCategories';
 
@@ -27,6 +28,8 @@ export default function CategoryEditPage({ params }: { params: Promise<{ id: str
     featureKey: 'enableCategoryHierarchy',
     moduleKey: 'products',
   });
+  const routeModeSetting = useQuery(api.settings.getValue, { key: 'ia_route_mode', defaultValue: 'unified' });
+  const routeMode = useMemo(() => normalizeRouteMode(routeModeSetting), [routeModeSetting]);
 
   const [activeTab, setActiveTab] = useState('info');
   const [name, setName] = useState('');
@@ -110,7 +113,7 @@ export default function CategoryEditPage({ params }: { params: Promise<{ id: str
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Chỉnh sửa danh mục</h1>
           <Link href="/admin/categories" className="text-sm text-orange-600 hover:underline">Quay lại danh sách</Link>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => window.open(`/products?category=${encodeURIComponent(slug)}`, '_blank')}>
+        <Button variant="outline" className="gap-2" onClick={() => window.open(buildCategoryPath({ categorySlug: slug, mode: routeMode, moduleKey: 'products' }), '_blank')}>
           <ExternalLink size={16}/> Xem trên web
         </Button>
       </div>
