@@ -635,9 +635,8 @@ export default function HomeComponentEditPage({
     switch (component.type) {
       case 'Banner':
       case 'Hero': {
-        const needsContent = ['fullscreen', 'conquest', 'split', 'parallax'].includes(heroStyle);
         return { 
-          content: needsContent ? heroContent : undefined, 
+          content: heroContent, 
           slides: heroSlides.map(s => ({ image: s.url, link: s.link })),
           style: heroStyle,
         };

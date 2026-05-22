@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
+import Fade from 'embla-carousel-fade';
 import { ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import { getBrandColors } from '@/lib/utils/colors';
 import { cn } from '../../../components/ui';
@@ -110,7 +111,11 @@ export const HeroPreview = ({
   const activeSlideCount = previewStyle === 'bento'
     ? Math.min(slides.length, 4)
     : (previewStyle === 'triple' || previewStyle === 'triple2' ? Math.min(slides.length, 3) : slides.length);
-  const [heroEmblaRef, heroEmblaApi] = useEmblaCarousel({ align: 'start', loop: activeSlideCount > 1 });
+  const isFadeStyle = previewStyle === 'fade' || previewStyle === 'builderCoffee' || (previewStyle === 'split' && device !== 'mobile');
+  const plugins = React.useMemo(() => {
+    return isFadeStyle ? [Fade()] : [];
+  }, [isFadeStyle]);
+  const [heroEmblaRef, heroEmblaApi] = useEmblaCarousel({ align: 'start', loop: activeSlideCount > 1 }, plugins);
   const [canScrollPrev, setCanScrollPrev] = React.useState(false);
   const [canScrollNext, setCanScrollNext] = React.useState(false);
   const emblaCurrentSlide = activeSlideCount > 0 ? currentSlide % activeSlideCount : 0;
@@ -133,7 +138,7 @@ export const HeroPreview = ({
   const fullscreenColors = getFullscreenColors(brandColors.primary, brandColors.secondary, mode);
   const splitColors = getSplitColors(brandColors.primary, brandColors.secondary, mode);
   const parallaxColors = getParallaxColors(brandColors.primary, brandColors.secondary, mode);
-  const isEmblaPreviewStyle = previewStyle === 'slider' || previewStyle === 'bento' || previewStyle === 'fullscreen' || previewStyle === 'conquest' || previewStyle === 'split' || previewStyle === 'parallax';
+  const isEmblaPreviewStyle = previewStyle === 'slider' || previewStyle === 'bento' || previewStyle === 'fullscreen' || previewStyle === 'conquest' || previewStyle === 'split' || previewStyle === 'parallax' || previewStyle === 'fade' || previewStyle === 'builderCoffee';
   const cornerRadiusClassName = getHeroCornerRadiusClassName(cornerRadius);
   const sectionSpacingClassName = getSectionSpacingClassName(spacing);
 
@@ -394,11 +399,13 @@ export const HeroPreview = ({
       )}>
         {slides.length > 0 ? (
           <>
-            {slides.map((slide, idx) => (
-              <div key={getSlideKey(slide, idx)} className={cn("absolute inset-0 transition-opacity duration-700", idx === currentSlide ? "opacity-100" : "opacity-0 pointer-events-none")}>
-                {slide.image ? renderSlideWithBlur(slide, idx) : renderPlaceholder(idx, { backgroundColor: fadeColors.placeholderBg, iconColor: fadeColors.placeholderIconColor })}
-              </div>
-            ))}
+            <div className="flex h-full">
+              {slides.map((slide, idx) => (
+                <div key={getSlideKey(slide, idx)} className="relative h-full min-w-0 flex-[0_0_100%]">
+                  {slide.image ? renderSlideWithBlur(slide, idx) : renderPlaceholder(idx, { backgroundColor: fadeColors.placeholderBg, iconColor: fadeColors.placeholderIconColor })}
+                </div>
+              ))}
+            </div>
             {slides.length > 1 && (
               <div className="absolute bottom-0 left-0 right-0 p-2 flex justify-center gap-2 bg-gradient-to-t from-black/60 to-transparent z-20">
                 {slides.map((slide, idx) => (
@@ -426,38 +433,37 @@ export const HeroPreview = ({
             <div className="col-span-3 overflow-hidden">
               <div className="relative">
                 <div
-                  className={cn("relative flex w-full touch-pan-y select-none items-center overflow-hidden", cornerRadiusClassName)}
+                  className={cn("relative flex w-full select-none items-center overflow-hidden", cornerRadiusClassName)}
                   role="toolbar"
-                  onTouchStart={handleTouchStart}
-                  onTouchEnd={handleTouchEnd}
+                  ref={heroEmblaRef}
                 >
                   {slides.length > 0 ? (
                     <>
-                      <div className="relative w-full overflow-hidden">
+                      <div className="flex h-full w-full">
                         {slides.map((slide, idx) => (
                           <div
                             key={getSlideKey(slide, idx)}
-                            className={cn(
-                              "absolute inset-0 text-center transition-opacity duration-700",
-                              idx === currentSlide ? "opacity-100" : "opacity-0 pointer-events-none"
-                            )}
+                            className="relative h-full min-w-0 flex-[0_0_100%]"
                           >
-                            <a href={slide.link || '#'} className="inline h-full w-full cursor-pointer text-center">
+                            <a href={slide.link || '#'} className="inline-block h-full w-full cursor-pointer text-center">
                               {slide.image ? (
                                 slide.mediaType === 'video' ? (
                                   <HeroPreviewVideo src={slide.image} className="h-full w-full object-contain" />
                                 ) : (
-                                  <div className="relative h-full w-full overflow-hidden">
+                                  <div className="relative h-[250px] md:h-[400px] lg:h-[500px] w-full overflow-hidden">
                                     <div className="absolute inset-0 scale-110" style={{ backgroundImage: `url(${slide.image})`, backgroundPosition: 'center', backgroundSize: 'cover', filter: 'blur(30px)' }} />
                                     <div className="absolute inset-0 bg-black/10" />
                                     <PreviewImage src={slide.image} alt="Sản phẩm nổi bật" className="relative z-10 mx-auto h-full w-full max-w-full object-contain align-middle" />
                                   </div>
                                 )
-                              ) : renderPlaceholder(idx, { backgroundColor: '#f8fafc', iconColor: sliderColors.placeholderIconColor })}
+                              ) : (
+                                <div className="h-[250px] md:h-[400px] lg:h-[500px]">
+                                  {renderPlaceholder(idx, { backgroundColor: '#f8fafc', iconColor: sliderColors.placeholderIconColor })}
+                                </div>
+                              )}
                             </a>
                           </div>
                         ))}
-                        <div className="relative w-full aspect-[16/9]" aria-hidden />
                       </div>
                       {slides.length > 1 && (
                         <>
@@ -502,9 +508,9 @@ export const HeroPreview = ({
                                 onClick={() =>{  setCurrentSlide(idx); }}
                                 className="mx-[3px] h-0.5 w-4 border transition-opacity"
                                 style={{
-                                  backgroundColor: idx === currentSlide ? '#8b7046' : '#cccccc',
-                                  borderColor: idx === currentSlide ? '#8b7046' : '#cccccc',
-                                  opacity: idx === currentSlide ? 1 : 0.7,
+                                  backgroundColor: idx === emblaCurrentSlide ? '#8b7046' : '#cccccc',
+                                  borderColor: idx === emblaCurrentSlide ? '#8b7046' : '#cccccc',
+                                  opacity: idx === emblaCurrentSlide ? 1 : 0.7,
                                 }}
                               />
                             ))}
@@ -1099,46 +1105,30 @@ export const HeroPreview = ({
               <div className={cn(
                 "relative overflow-hidden",
                 device === 'mobile' ? 'w-full h-[200px] order-1' : 'w-1/2'
-              )} ref={device === 'mobile' ? heroEmblaRef : undefined}>
-                {device === 'mobile' ? (
-                  <div className="flex h-full">
-                    {slides.map((slide, idx) => (
-                      <div key={getSlideKey(slide, idx)} className="relative h-full min-w-0 flex-[0_0_100%]">
-                        {slide.image ? (
-                          isVideoUrl(slide.image) ? (
-                            <HeroPreviewVideo src={slide.image} className="w-full h-full object-cover" />
-                          ) : (
-                            <PreviewImage src={slide.image} alt="" className="w-full h-full object-cover" />
-                          )
+              )} ref={heroEmblaRef}>
+                <div className="flex h-full">
+                  {slides.map((slide, idx) => (
+                    <div key={getSlideKey(slide, idx)} className="relative h-full min-w-0 flex-[0_0_100%]">
+                      {slide.image ? (
+                        isVideoUrl(slide.image) ? (
+                          <HeroPreviewVideo src={slide.image} className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700">
-                            <ImageIcon size={40} className="text-slate-400" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : slides.map((slide, idx) => (
-                  <div key={getSlideKey(slide, idx)} className={cn("absolute inset-0 transition-all duration-700", idx === currentSlide ? "opacity-100 scale-100" : "opacity-0 scale-105 pointer-events-none")}>
-                    {slide.image ? (
-                      isVideoUrl(slide.image) ? (
-                        <HeroPreviewVideo src={slide.image} className="w-full h-full object-cover" />
+                          <PreviewImage src={slide.image} alt="" className="w-full h-full object-cover" />
+                        )
                       ) : (
-                      <PreviewImage src={slide.image} alt="" className="w-full h-full object-cover" />
-                      )
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700">
-                        <ImageIcon size={40} className="text-slate-400" />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                        <div className="w-full h-full flex items-center justify-center bg-slate-200 dark:bg-slate-700">
+                          <ImageIcon size={40} className="text-slate-400" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
                 {slides.length > 1 && (
                   <>
-                    <button type="button" onClick={prevSlide} disabled={device === 'mobile' && !canScrollPrev} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg flex items-center justify-center z-10 disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}>
+                    <button type="button" onClick={prevSlide} disabled={!canScrollPrev} className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg flex items-center justify-center z-10 disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}>
                       <ChevronLeft size={16} style={{ color: splitColors.navButtonIcon }} />
                     </button>
-                    <button type="button" onClick={nextSlide} disabled={device === 'mobile' && !canScrollNext} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg flex items-center justify-center z-10 disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}>
+                    <button type="button" onClick={nextSlide} disabled={!canScrollNext} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg flex items-center justify-center z-10 disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}>
                       <ChevronRight size={16} style={{ color: splitColors.navButtonIcon }} />
                     </button>
                     {device === 'mobile' && (

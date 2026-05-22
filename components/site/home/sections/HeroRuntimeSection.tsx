@@ -2,6 +2,7 @@
 
 import React from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
+import Fade from 'embla-carousel-fade';
 import { PublicImage as Image } from '@/components/shared/PublicImage';
 import { cn } from '@/app/admin/components/ui';
 import { getAPCATextColor, getBentoColors, getConquestColors, getFadeColors, getFullscreenColors, getParallaxColors, getSliderColors, getSplitColors } from '@/app/admin/home-components/hero/_lib/colors';
@@ -130,7 +131,11 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
   const activeSlideCount = style === 'bento'
     ? Math.min(slides.length, 4)
     : (style === 'triple' || style === 'triple2' ? Math.min(slides.length, 3) : slides.length);
-  const [heroEmblaRef, heroEmblaApi] = useEmblaCarousel({ align: 'start', loop: activeSlideCount > 1 });
+  const isFadeStyle = style === 'fade' || style === 'builderCoffee';
+  const plugins = React.useMemo(() => {
+    return isFadeStyle ? [Fade()] : [];
+  }, [isFadeStyle]);
+  const [heroEmblaRef, heroEmblaApi] = useEmblaCarousel({ align: 'start', loop: activeSlideCount > 1 }, plugins);
   const [canScrollPrev, setCanScrollPrev] = React.useState(false);
   const [canScrollNext, setCanScrollNext] = React.useState(false);
   const emblaCurrentSlide = activeSlideCount > 0 ? currentSlide % activeSlideCount : 0;
@@ -305,19 +310,21 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
     return renderWithSpacing(
       <section className="relative w-full bg-slate-900 overflow-hidden">
         <h1 className="sr-only">{content.heading || 'Trang chủ'}</h1>
-        <div className="relative w-full aspect-[16/9] md:aspect-[21/9] max-h-[450px] md:max-h-[600px]">
-          {slides.map((slide, idx) => {
-            const shouldLoad = isLikelyVisibleSlide(idx, currentSlide, slides.length);
-            return (
-              <div key={idx} className={`absolute inset-0 transition-opacity duration-700 ${idx === currentSlide ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                {slide.image ? renderSlideWithBlur(slide, { priority: idx === 0, loading: shouldLoad ? 'eager' : 'lazy' }) : renderPlaceholder(fadeColors.placeholderBg, fadeColors.placeholderIconColor)}
-              </div>
-            );
-          })}
+        <div className="relative w-full aspect-[16/9] md:aspect-[21/9] max-h-[450px] md:max-h-[600px]" ref={heroEmblaRef}>
+          <div className="flex h-full w-full">
+            {slides.map((slide, idx) => {
+              const shouldLoad = isLikelyVisibleSlide(idx, emblaCurrentSlide, slides.length);
+              return (
+                <div key={idx} className="relative h-full min-w-0 flex-[0_0_100%]">
+                  {slide.image ? renderSlideWithBlur(slide, { priority: idx === 0, loading: shouldLoad ? 'eager' : 'lazy' }) : renderPlaceholder(fadeColors.placeholderBg, fadeColors.placeholderIconColor)}
+                </div>
+              );
+            })}
+          </div>
           {slides.length > 1 && (
             <div className="absolute bottom-0 left-0 right-0 p-3 flex justify-center gap-2 bg-gradient-to-t from-black/60 to-transparent z-20">
               {slides.map((slide, idx) => (
-                <button key={idx} onClick={() => { setCurrentSlide(idx); }} className={`rounded overflow-hidden transition-all border-2 w-16 h-10 md:w-20 md:h-12 ${idx === currentSlide ? 'scale-105' : 'border-transparent opacity-70 hover:opacity-100'}`} style={idx === currentSlide ? { borderColor: fadeColors.thumbnailBorderActive } : { borderColor: fadeColors.thumbnailBorderInactive }}>
+                <button key={idx} onClick={() => { scrollHeroTo(idx); }} className={`rounded overflow-hidden transition-all border-2 w-16 h-10 md:w-20 md:h-12 ${idx === emblaCurrentSlide ? 'scale-105' : 'border-transparent opacity-70 hover:opacity-100'}`} style={idx === emblaCurrentSlide ? { borderColor: fadeColors.thumbnailBorderActive } : { borderColor: fadeColors.thumbnailBorderInactive }}>
                   {slide.image ? (slide.mediaType === 'video' ? <HeroRuntimeVideo src={slide.image} className="w-full h-full object-cover" /> : <SiteImage src={slide.image} alt="" className="w-full h-full object-cover" loading="lazy" />) : renderPlaceholder(fadeColors.placeholderBg, fadeColors.placeholderIconColor, 18)}
                 </button>
               ))}
@@ -337,83 +344,62 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
               <div className="col-span-3 overflow-hidden">
                 <div className="relative">
                   <div
-                    className={cn('relative flex w-full touch-pan-y select-none items-center overflow-hidden bg-white', cornerRadiusClassName)}
+                    className={cn('relative flex w-full select-none items-center overflow-hidden bg-white', cornerRadiusClassName)}
                     role="toolbar"
-                    onTouchStart={handleTouchStart}
-                    onTouchEnd={handleTouchEnd}
+                    ref={heroEmblaRef}
                   >
                     <h1 className="sr-only">{content.heading || 'Trang chủ'}</h1>
-                    <div className="relative w-full overflow-hidden">
+                    <div className="flex h-full w-full">
                       {slides.map((slide, idx) => {
-                        const shouldLoad = isLikelyVisibleSlide(idx, currentSlide, slides.length);
+                        const shouldLoad = isLikelyVisibleSlide(idx, emblaCurrentSlide, slides.length);
                         return (
-                          <div key={idx} className={`absolute inset-0 text-center transition-opacity duration-700 ${idx === currentSlide ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                            <a href={slide.link || '#'} className="inline h-full w-full cursor-pointer text-center">
+                          <div key={idx} className="relative h-full min-w-0 flex-[0_0_100%]">
+                            <a href={slide.link || '#'} className="inline-block h-full w-full cursor-pointer text-center">
                               {slide.image ? (
                                 slide.mediaType === 'video' ? (
-                                  <HeroRuntimeVideo src={slide.image} className="h-full w-full object-contain" />
+                                  <HeroRuntimeVideo src={slide.image} className="h-[250px] md:h-[400px] lg:h-[500px] w-full object-contain" />
                                 ) : (
-                                  <div className="relative h-full w-full overflow-hidden">
+                                  <div className="relative h-[250px] md:h-[400px] lg:h-[500px] w-full overflow-hidden">
                                     <div className="absolute inset-0 scale-110" style={{ backgroundImage: `url(${slide.image})`, backgroundPosition: 'center', backgroundSize: 'cover', filter: 'blur(30px)' }} />
                                     <div className="absolute inset-0 bg-black/10" />
                                     <SiteImage src={slide.image} alt="Sản phẩm nổi bật" className="relative z-10 mx-auto h-full w-full max-w-full object-contain align-middle" width={1500} height={560} priority={idx === 0} loading={shouldLoad ? 'eager' : 'lazy'} sizes="100vw" />
                                   </div>
                                 )
-                              ) : renderPlaceholder('#f8fafc', sliderColors.placeholderIconColor)}
+                              ) : (
+                                <div className="h-[250px] md:h-[400px] lg:h-[500px]">
+                                  {renderPlaceholder('#f8fafc', sliderColors.placeholderIconColor)}
+                                </div>
+                              )}
                             </a>
                           </div>
                         );
                       })}
-                      <div className="relative w-full aspect-[16/9]" aria-hidden />
                     </div>
                     {slides.length > 1 && (
                       <>
                         <button
                           type="button"
                           aria-label="Previous"
-                          onClick={() => { setCurrentSlide((prev) => prev === 0 ? slides.length - 1 : prev - 1); }}
-                          className="absolute -left-0.5 top-1/2 z-20 block h-[52px] w-[13px] -translate-y-1/2 overflow-hidden bg-transparent text-transparent md:h-[118px] md:w-[30px]"
-                          style={{
-                            backgroundImage: 'url("https://bizweb.dktcdn.net/100/485/374/themes/945619/assets/arow-left.png?1778581786863")',
-                            backgroundPosition: 'center',
-                            backgroundRepeat: 'no-repeat',
-                            backgroundSize: 'contain',
-                          }}
+                          onClick={scrollHeroPrev}
+                          disabled={!canScrollPrev}
+                          className="absolute -left-0.5 top-1/2 z-20 block h-[52px] w-[13px] -translate-y-1/2 overflow-hidden bg-transparent text-transparent md:h-[118px] md:w-[30px] disabled:cursor-not-allowed disabled:opacity-40"
+                          style={{ backgroundImage: 'url("https://bizweb.dktcdn.net/100/485/374/themes/945619/assets/arow-left.png?1778581786863")', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundSize: 'contain' }}
                         >
-                          <span className="absolute inset-0 z-30 flex items-center justify-start pl-0.5 text-black md:pl-1">
-                            <svg className="h-2.5 w-2.5 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.1} d="M15 19l-7-7 7-7" /></svg>
-                          </span>
+                          <span className="absolute inset-0 z-30 flex items-center justify-start pl-0.5 text-black md:pl-1"><svg className="h-2.5 w-2.5 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.1} d="M15 19l-7-7 7-7" /></svg></span>
                         </button>
                         <button
                           type="button"
                           aria-label="Next"
-                          onClick={() => { setCurrentSlide((prev) => (prev + 1) % slides.length); }}
-                          className="absolute -right-0.5 top-1/2 z-20 block h-[52px] w-[13px] -translate-y-1/2 overflow-hidden bg-transparent text-transparent md:h-[118px] md:w-[30px]"
-                          style={{
-                            backgroundImage: 'url("https://bizweb.dktcdn.net/100/485/374/themes/945619/assets/arow-right.png?1778581786863")',
-                            backgroundPosition: 'center',
-                            backgroundRepeat: 'no-repeat',
-                            backgroundSize: 'contain',
-                          }}
+                          onClick={scrollHeroNext}
+                          disabled={!canScrollNext}
+                          className="absolute -right-0.5 top-1/2 z-20 block h-[52px] w-[13px] -translate-y-1/2 overflow-hidden bg-transparent text-transparent md:h-[118px] md:w-[30px] disabled:cursor-not-allowed disabled:opacity-40"
+                          style={{ backgroundImage: 'url("https://bizweb.dktcdn.net/100/485/374/themes/945619/assets/arow-right.png?1778581786863")', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundSize: 'contain' }}
                         >
-                          <span className="absolute inset-0 z-30 flex items-center justify-end pr-0.5 text-black md:pr-1">
-                            <svg className="h-2.5 w-2.5 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.1} d="M9 5l7 7-7 7" /></svg>
-                          </span>
+                          <span className="absolute inset-0 z-30 flex items-center justify-end pr-0.5 text-black md:pr-1"><svg className="h-2.5 w-2.5 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.1} d="M9 5l7 7-7 7" /></svg></span>
                         </button>
                         <div className="absolute bottom-0 left-1/2 z-20 mb-4 flex h-6 w-[100px] -translate-x-1/2 items-center justify-center rounded-[15px]">
                           {slides.map((_, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              aria-label={`Đi tới slide ${idx + 1}`}
-                              onClick={() => { setCurrentSlide(idx); }}
-                              className="mx-[3px] h-0.5 w-4 border transition-opacity"
-                              style={{
-                                backgroundColor: idx === currentSlide ? '#8b7046' : '#cccccc',
-                                borderColor: idx === currentSlide ? '#8b7046' : '#cccccc',
-                                opacity: idx === currentSlide ? 1 : 0.7,
-                              }}
-                            />
+                            <button key={idx} type="button" aria-label={`Đi tới slide ${idx + 1}`} onClick={() => { scrollHeroTo(idx); }} className="mx-[3px] h-0.5 w-4 border transition-opacity" style={{ backgroundColor: idx === emblaCurrentSlide ? '#8b7046' : '#cccccc', borderColor: idx === emblaCurrentSlide ? '#8b7046' : '#cccccc', opacity: idx === emblaCurrentSlide ? 1 : 0.7 }} />
                           ))}
                         </div>
                       </>
@@ -879,36 +865,33 @@ export function HeroRuntimeSection({ config, brandColor, secondary, mode }: Home
         <div className="flex flex-col md:flex-row md:h-[450px] lg:h-[550px]">
           <div className="w-full md:w-1/2 flex flex-col justify-center p-6 md:p-10 lg:p-16 order-2 md:order-1" style={{ backgroundColor: splitColors.contentBg }}>
             <div className={`max-w-md space-y-4${content.textAlign === 'center' ? ' text-center' : ''}${content.textAlign === 'right' ? ' text-right' : ''}`}>
-              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: splitColors.badgeBg, color: splitColors.badgeText }}>{content.badge ?? `Banner ${currentSlide + 1}/${slides.length}`}</span>
+              <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide" style={{ backgroundColor: splitColors.badgeBg, color: splitColors.badgeText }}>{content.badge ?? `Banner ${emblaCurrentSlide + 1}/${slides.length}`}</span>
               <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold leading-tight" style={{ color: splitColors.headingText }}>{parseHighlightedHeading(content.heading ?? 'Tiêu đề nổi bật', content.highlightColor)}</h1>
               {content.description && <p className="text-base md:text-lg" style={{ color: splitColors.descriptionText }}>{content.description}</p>}
               {content.primaryButtonText && <div className={`pt-2${content.textAlign === 'center' ? ' text-center' : ''}${content.textAlign === 'right' ? ' text-right' : ''}`}><a href={primaryHref} className="inline-block px-6 py-3 font-medium rounded-lg" style={{ backgroundColor: primaryButtonBg, color: primaryButtonText }}>{content.primaryButtonText}</a></div>}
             </div>
-            {slides.length > 1 && <div className="mt-8 hidden gap-2 md:flex">{slides.map((_, idx) => <button key={idx} type="button" onClick={() => { setCurrentSlide(idx); }} className={`h-1.5 rounded-full transition-all ${idx === currentSlide ? 'w-10' : 'w-6'}`} style={{ backgroundColor: idx === currentSlide ? splitColors.progressDotActive : splitColors.progressDotInactive }} />)}</div>}
+            {slides.length > 1 && <div className="mt-8 hidden gap-2 md:flex">{slides.map((_, idx) => <button key={idx} type="button" onClick={() => { scrollHeroTo(idx); }} className={`h-1.5 rounded-full transition-all ${idx === emblaCurrentSlide ? 'w-10' : 'w-6'}`} style={{ backgroundColor: idx === emblaCurrentSlide ? splitColors.progressDotActive : splitColors.progressDotInactive }} />)}</div>}
           </div>
-          <div className="relative order-1 h-[280px] w-full overflow-hidden md:hidden" ref={heroEmblaRef}>
-            <div className="flex h-full">
+          <div className="relative order-1 md:order-2 h-[280px] md:h-full w-full md:w-1/2 overflow-hidden" ref={heroEmblaRef}>
+            <div className="flex h-full w-full">
               {slides.map((slide, idx) => {
                 const shouldLoad = isLikelyVisibleSlide(idx, emblaCurrentSlide, slides.length);
                 return (
                   <div key={idx} className="relative h-full min-w-0 flex-[0_0_100%]">
-                    {slide.image ? (slide.mediaType === 'video' ? <HeroRuntimeVideo src={slide.image} className="w-full h-full object-cover" /> : <SiteImage src={slide.image} alt="" className="w-full h-full object-cover" priority={idx === 0} loading={shouldLoad ? 'eager' : 'lazy'} />) : <div className="w-full h-full flex items-center justify-center bg-slate-200"><LayoutTemplate size={48} className="text-slate-400" /></div>}
+                    {slide.image ? (slide.mediaType === 'video' ? <HeroRuntimeVideo src={slide.image} className="w-full h-full object-cover" /> : <SiteImage src={slide.image} alt="" className="w-full h-full object-cover" priority={idx === 0} loading={shouldLoad ? 'eager' : 'lazy'} sizes="(max-width: 768px) 100vw, 50vw" />) : <div className="w-full h-full flex items-center justify-center bg-slate-200"><LayoutTemplate size={48} className="text-slate-400" /></div>}
                   </div>
                 );
               })}
             </div>
-            {slides.length > 1 && <><button type="button" aria-label="Ảnh trước" onClick={scrollHeroPrev} disabled={!canScrollPrev} className="absolute left-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="h-4 w-4" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button><button type="button" aria-label="Ảnh tiếp" onClick={scrollHeroNext} disabled={!canScrollNext} className="absolute right-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="h-4 w-4" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button><div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-2">{slides.map((_, idx) => <button key={idx} type="button" onClick={() => { scrollHeroTo(idx); }} className={`h-2 rounded-full transition-all ${idx === emblaCurrentSlide ? 'w-6' : 'w-2'}`} style={{ backgroundColor: idx === emblaCurrentSlide ? splitColors.progressDotActive : splitColors.progressDotInactive }} />)}</div></>}
-          </div>
-          <div className="relative order-2 hidden overflow-hidden md:block md:h-full md:w-1/2">
-            {slides.map((slide, idx) => {
-              const shouldLoad = isLikelyVisibleSlide(idx, currentSlide, slides.length);
-              return (
-                <div key={idx} className={`absolute inset-0 transition-all duration-700 ${idx === currentSlide ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'}`}>
-                  {slide.image ? (slide.mediaType === 'video' ? <HeroRuntimeVideo src={slide.image} className="w-full h-full object-cover" /> : <SiteImage src={slide.image} alt="" className="w-full h-full object-cover" priority={idx === currentSlide} loading={shouldLoad ? 'eager' : 'lazy'} />) : <div className="w-full h-full flex items-center justify-center bg-slate-200"><LayoutTemplate size={48} className="text-slate-400" /></div>}
+            {slides.length > 1 && (
+              <>
+                <button type="button" aria-label="Ảnh trước" onClick={scrollHeroPrev} disabled={!canScrollPrev} className="absolute left-3 md:left-4 top-1/2 z-10 flex h-8 w-8 md:h-10 md:w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="h-4 w-4 md:w-5 md:h-5" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                <button type="button" aria-label="Ảnh tiếp" onClick={scrollHeroNext} disabled={!canScrollNext} className="absolute right-3 md:right-4 top-1/2 z-10 flex h-8 w-8 md:h-10 md:w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="h-4 w-4 md:w-5 md:h-5" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button>
+                <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-2 md:hidden">
+                  {slides.map((_, idx) => <button key={idx} type="button" onClick={() => { scrollHeroTo(idx); }} className={`h-2 rounded-full transition-all ${idx === emblaCurrentSlide ? 'w-6' : 'w-2'}`} style={{ backgroundColor: idx === emblaCurrentSlide ? splitColors.progressDotActive : splitColors.progressDotInactive }} />)}
                 </div>
-              );
-            })}
-            {slides.length > 1 && <><button type="button" onClick={() => { setCurrentSlide((prev) => prev === 0 ? slides.length - 1 : prev - 1); }} className="absolute left-4 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="w-5 h-5" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button><button type="button" onClick={() => { setCurrentSlide((prev) => (prev + 1) % slides.length); }} className="absolute right-4 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full shadow-lg" style={{ backgroundColor: splitColors.navButtonBg, boxShadow: `0 0 0 2px ${splitColors.navButtonOuterRing}` }}><svg className="w-5 h-5" style={{ color: splitColors.navButtonIcon }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button></>}
+              </>
+            )}
           </div>
         </div>
       </section>

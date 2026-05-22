@@ -82,10 +82,8 @@ export function buildHeroConfig({
   heroStyle: HeroStyle;
   spacing: HeroSpacing;
 }) {
-  const needsContent = ['fullscreen', 'conquest', 'split', 'parallax'].includes(heroStyle);
-
   return {
-    content: needsContent ? heroContent : undefined,
+    content: heroContent,
     cornerRadius,
     noBorderRadius: cornerRadius === 'none',
     spacing,
