@@ -45,6 +45,7 @@ export interface DemoProductItem {
   description?: string;
   category?: string;
   tag?: 'new' | 'hot' | 'sale' | '';
+  link?: string;
 }
 
 export const DEFAULT_PRODUCT_LIST_CARD_RADIUS: ProductListCardRadius = 'lg';

@@ -31,6 +31,7 @@ export interface DemoServiceItem {
   price?: string;
   description?: string;
   tag?: '' | 'new' | 'hot';
+  link?: string;
 }
 
 export interface ServiceListConfig extends SectionHeaderConfig {

@@ -5,7 +5,7 @@ import { AdminImage as Image } from '@/app/admin/components/AdminImage';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
-import { Bot, Check, GripVertical, Loader2, Package, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { Bot, Check, GripVertical, Loader2, Package, Plus, Search, Upload, X } from 'lucide-react';
 import { Button, Input, Label, cn } from '../../../components/ui';
 import type { DemoProductItem, ProductListConfig, ProductSelectionMode } from '../_types';
 import { DEFAULT_DEMO_PRODUCTS } from '../_lib/constants';
@@ -18,6 +18,9 @@ import { ImageSourceActions } from '@/app/admin/components/ImageSourceActions';
 import { CollapsibleSubSection as SubSection } from '../../_shared/components/CollapsibleSubSection';
 import { useFormSectionsState } from '../../_shared/hooks/useFormSectionsState';
 import { FormSectionsToggleAllButton } from '../../_shared/components/FormSectionsToggleAllButton';
+import { useDemoItemList } from '../../_shared/hooks/useDemoItemList';
+import { DemoItemRowShell } from '../../_shared/components/DemoItemRowShell';
+import { DemoPrimaryFields } from '../../_shared/components/DemoPrimaryFields';
 
 export interface ProductListFormProduct {
   _id: string;
@@ -256,8 +259,6 @@ export const ProductListForm = ({
   onToggleSection?: (key: any, open?: boolean) => void;
   showToggleAll?: boolean;
 }) => {
-  const deleteImage = useMutation(api.storage.deleteImage);
-
   const localSectionsState = useFormSectionsState(
     ['products'],
     defaultExpanded
@@ -272,36 +273,14 @@ export const ProductListForm = ({
     ? (() => activeToggleSection('products', activeHasClosedSection))
     : localSectionsState.handleToggleAll;
 
-  const addDemoItem = () => {
-    setDemoProducts(prev => [...prev, {
-      id: `demo-${Date.now()}`,
-      name: '',
-      image: '',
-      price: '',
-      originalPrice: '',
-      category: '',
-      tag: '' as const,
-    }]);
-  };
-
-  const updateDemoItem = (id: string, patch: Partial<DemoProductItem>) => {
-    setDemoProducts(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item));
-  };
-
-  const removeDemoItem = async (id: string) => {
-    const item = demoProducts.find(d => d.id === id);
-    if (demoProducts.length <= 1) { return; }
-
-    // Delete storage image if uploaded
-    if (item?.storageId) {
-      try { await deleteImage({ storageId: item.storageId as Id<'_storage'> }); } catch { /* ignore */ }
-    }
-    setDemoProducts(prev => prev.filter(d => d.id !== id));
-  };
-
-  const loadDefaultDemo = () => {
-    setDemoProducts(DEFAULT_DEMO_PRODUCTS.map((d, i) => ({ ...d, id: `demo-${Date.now() + i}` })));
-  };
+  const { add: addDemoItem, update: updateDemoItem, remove: removeDemoItem, loadDefault: loadDefaultDemo } = useDemoItemList(
+    demoProducts,
+    setDemoProducts,
+    {
+      createEmpty: () => ({ name: '', image: '', price: '', originalPrice: '', category: '', tag: '' as const, link: '' }),
+      defaults: DEFAULT_DEMO_PRODUCTS,
+    },
+  );
 
   return (
     <div className={cn('mb-6 space-y-3', className)}>
@@ -515,40 +494,13 @@ export const ProductListForm = ({
 
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
                 {demoProducts.map((item, index) => (
-                  <div
+                  <DemoItemRowShell
                     key={item.id}
-                    className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden"
-                  >
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <span className="w-5 h-5 flex items-center justify-center bg-amber-500 text-white text-[10px] rounded-full font-medium shrink-0">
-                        {index + 1}
-                      </span>
-                      <DemoItemImageUploader
-                        item={item}
-                        onImageChange={(url, storageId) => updateDemoItem(item.id, { image: url, storageId })}
-                      />
-                      <Input
-                        placeholder="Tên sản phẩm *"
-                        className="h-8 flex-1 text-xs min-w-0"
-                        value={item.name}
-                        onChange={(e) => updateDemoItem(item.id, { name: e.target.value })}
-                      />
-                      <Input
-                        placeholder="Giá (VD: 1.990.000đ)"
-                        className="h-8 w-32 text-xs shrink-0"
-                        value={item.price ?? ''}
-                        onChange={(e) => updateDemoItem(item.id, { price: e.target.value })}
-                      />
-
-                      <Button
-                        type="button" variant="ghost" size="icon"
-                        className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-500"
-                        onClick={() => void removeDemoItem(item.id)}
-                      >
-                        <Trash2 size={13} />
-                      </Button>
-                    </div>
-                    <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5">
+                    index={index}
+                    image={item.image}
+                    onRemove={() => void removeDemoItem(item.id)}
+                    placeholderIcon={<Package size={12} />}
+                    footer={
                       <div className="grid grid-cols-2 gap-2">
                         <Input
                           placeholder="Giá gốc (tuỳ chọn)"
@@ -563,8 +515,26 @@ export const ProductListForm = ({
                           onChange={(e) => updateDemoItem(item.id, { category: e.target.value })}
                         />
                       </div>
-                    </div>
-                  </div>
+                    }
+                  >
+                    <DemoItemImageUploader
+                      item={item}
+                      onImageChange={(url, storageId) => updateDemoItem(item.id, { image: url, storageId })}
+                    />
+                    <DemoPrimaryFields
+                      name={item.name}
+                      namePlaceholder="Tên sản phẩm *"
+                      onNameChange={v => updateDemoItem(item.id, { name: v })}
+                      link={item.link ?? ''}
+                      onLinkChange={v => updateDemoItem(item.id, { link: v })}
+                    />
+                    <Input
+                      placeholder="Giá (VD: 1.990.000đ)"
+                      className="h-8 w-28 text-xs shrink-0"
+                      value={item.price ?? ''}
+                      onChange={(e) => updateDemoItem(item.id, { price: e.target.value })}
+                    />
+                  </DemoItemRowShell>
                 ))}
               </div>
 

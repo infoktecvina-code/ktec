@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { AdminImage as Image } from '@/app/admin/components/AdminImage';
-import { Bot, Check, FileText, GripVertical, Package, Plus, Search, Trash2, X } from 'lucide-react';
+import { Bot, Check, FileText, GripVertical, Package, Plus, Search, X } from 'lucide-react';
 import { Button, Card, CardContent, Input, Label, cn } from '../../../components/ui';
 import { SettingsImageUploader } from '../../../components/SettingsImageUploader';
 import { InputWithClear } from '../../stats/_components/InputWithClear';
@@ -14,6 +14,9 @@ import { HomeComponentDisplaySettingsSection } from '../../_shared/components/Ho
 import type { SectionSpacing } from '../../_shared/types/sectionSpacing';
 import { useFormSectionsState } from '../../_shared/hooks/useFormSectionsState';
 import { FormSectionsToggleAllButton } from '../../_shared/components/FormSectionsToggleAllButton';
+import { useDemoItemList } from '../../_shared/hooks/useDemoItemList';
+import { DemoItemRowShell } from '../../_shared/components/DemoItemRowShell';
+import { DemoPrimaryFields } from '../../_shared/components/DemoPrimaryFields';
 
 export interface BlogPostItem {
   _id: string;
@@ -92,30 +95,14 @@ export const BlogForm = ({
   const activeSections = React.useMemo(() => ['settings', 'source'], []);
   const { openSections, toggleSection, hasClosedSection, handleToggleAll } = useFormSectionsState(activeSections, defaultExpanded);
 
-  const addDemoItem = () => {
-    setDemoPosts(prev => [...prev, {
-      id: `demo-${Date.now()}`,
-      title: '',
-      excerpt: '',
-      thumbnail: '',
-      category: '',
-      date: '',
-      author: '',
-    }]);
-  };
-
-  const updateDemoItem = (id: string, patch: Partial<DemoBlogItem>) => {
-    setDemoPosts(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item));
-  };
-
-  const removeDemoItem = (id: string) => {
-    if (demoPosts.length <= 1) { return; }
-    setDemoPosts(prev => prev.filter(d => d.id !== id));
-  };
-
-  const loadDefaultDemo = () => {
-    setDemoPosts(DEFAULT_DEMO_BLOG_POSTS.map((d, i) => ({ ...d, id: `demo-${Date.now() + i}` })));
-  };
+  const { add: addDemoItem, update: updateDemoItem, remove: removeDemoItem, loadDefault: loadDefaultDemo } = useDemoItemList(
+    demoPosts,
+    setDemoPosts,
+    {
+      createEmpty: () => ({ title: '', excerpt: '', thumbnail: '', category: '', date: '', author: '', link: '' }),
+      defaults: DEFAULT_DEMO_BLOG_POSTS,
+    },
+  );
 
   return (
     <Card className="mb-6">
@@ -388,41 +375,26 @@ export const BlogForm = ({
 
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
                 {demoPosts.map((item, index) => (
-                  <div
+                  <DemoItemRowShell
                     key={item.id}
-                    className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden"
+                    index={index}
+                    image={item.thumbnail}
+                    onRemove={() => removeDemoItem(item.id)}
+                    placeholderIcon={<FileText size={12} />}
                   >
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <span className="w-5 h-5 flex items-center justify-center bg-amber-500 text-white text-[10px] rounded-full font-medium shrink-0">
-                        {index + 1}
-                      </span>
-                      {item.thumbnail ? (
-                        <Image src={item.thumbnail} alt="" width={36} height={36} className="w-9 h-9 object-cover rounded shrink-0" />
-                      ) : (
-                        <div className="w-9 h-9 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center shrink-0">
-                          <FileText size={12} className="text-slate-400" />
-                        </div>
-                      )}
-                      <InputWithClear
-                        placeholder="Tiêu đề bài viết *"
-                        className="h-8 flex-1 text-xs min-w-0"
-                        value={item.title}
-                        onChange={(value) => updateDemoItem(item.id, { title: value })}
-                      />
-                      <InputWithClear
-                        placeholder="Danh mục"
-                        className="h-8 w-28 text-xs shrink-0"
-                        value={item.category ?? ''}
-                        onChange={(value) => updateDemoItem(item.id, { category: value })}
-                      />
-                      <Button
-                        type="button" variant="ghost" size="icon"
-                        className="h-7 w-7 shrink-0 text-slate-400 hover:text-red-500"
-                        onClick={() => removeDemoItem(item.id)}
-                      >
-                        <Trash2 size={13} />
-                      </Button>
-                    </div>
+                    <DemoPrimaryFields
+                      name={item.title}
+                      namePlaceholder="Tiêu đề bài viết *"
+                      onNameChange={v => updateDemoItem(item.id, { title: v })}
+                      link={item.link ?? ''}
+                      onLinkChange={v => updateDemoItem(item.id, { link: v })}
+                    />
+                    <InputWithClear
+                      placeholder="Danh mục"
+                      className="h-8 w-28 text-xs shrink-0"
+                      value={item.category ?? ''}
+                      onChange={value => updateDemoItem(item.id, { category: value })}
+                    />
                     <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5">
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <InputWithClear
@@ -441,7 +413,7 @@ export const BlogForm = ({
                         />
                       </div>
                     </div>
-                  </div>
+                  </DemoItemRowShell>
                 ))}
               </div>
 

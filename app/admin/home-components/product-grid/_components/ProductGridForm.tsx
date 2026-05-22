@@ -2,7 +2,10 @@
 
 import React from 'react';
 import { AdminImage as Image } from '@/app/admin/components/AdminImage';
-import { Check, GripVertical, Layers, Package, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Check, GripVertical, Layers, Package, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { useDemoItemList } from '../../_shared/hooks/useDemoItemList';
+import { DemoItemRowShell } from '../../_shared/components/DemoItemRowShell';
+import { DemoPrimaryFields } from '../../_shared/components/DemoPrimaryFields';
 import { Button, Input, Label, cn } from '../../../components/ui';
 import { SettingsImageUploader } from '../../../components/SettingsImageUploader';
 import type { ProductGridSortBy, ProductGridSelectionMode } from '../_types';
@@ -97,6 +100,15 @@ export const ProductGridForm = ({
   const selectedCategories = allCategories
     ? categoryTabIds.map(id => allCategories.find(c => c._id === id)).filter(Boolean) as CategoryTabItem[]
     : [];
+
+  const { add: addDemoProduct, update: updateDemoProduct, remove: removeDemoProduct, loadDefault: loadDefaultDemo } = useDemoItemList(
+    demoProducts,
+    setDemoProducts,
+    {
+      createEmpty: () => ({ name: '', image: '', price: '', originalPrice: '', description: '', category: '', tag: '' as const, link: '' }),
+      defaults: DEFAULT_DEMO_PRODUCTS,
+    },
+  );
 
   return (
     <div className={cn('mb-6', className)}>
@@ -419,55 +431,65 @@ export const ProductGridForm = ({
               <div className="flex items-center justify-between">
                 <Label>Sản phẩm demo ({demoProducts.length})</Label>
                 <div className="flex gap-1.5">
-                  <Button type="button" variant="outline" size="sm"
-                    onClick={() => setDemoProducts(DEFAULT_DEMO_PRODUCTS.map((d, i) => ({ ...d, id: `demo-${Date.now() + i}` })))}>
+                  <Button type="button" variant="outline" size="sm" onClick={loadDefaultDemo}>
                     <RotateCcw size={14} className="mr-1" /> Mặc định
                   </Button>
                   <AiDemoProductsImport onApply={setDemoProducts} />
-                  <Button type="button" variant="outline" size="sm"
-                    onClick={() => setDemoProducts(prev => [...prev, { id: `demo-${Date.now()}`, name: '', image: '', price: '', originalPrice: '', description: '', category: '', tag: '' as const }])}>
+                  <Button type="button" variant="outline" size="sm" onClick={addDemoProduct}>
                     <Plus size={14} className="mr-1" /> Thêm
                   </Button>
                 </div>
               </div>
-              {demoProducts.map((item, index) => (
-                <div key={item.id} className="flex items-start gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                  <span className="mt-2 w-5 h-5 flex items-center justify-center bg-blue-500 text-white text-[10px] rounded-full font-bold shrink-0">{index + 1}</span>
-                  <div className="flex-1 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="Tên sản phẩm" value={item.name} className="col-span-2"
-                        onChange={(e) => setDemoProducts(prev => prev.map(d => d.id === item.id ? { ...d, name: e.target.value } : d))} />
-                      <Input placeholder="Giá (VD: 350.000)" value={item.price ?? ''}
-                        onChange={(e) => setDemoProducts(prev => prev.map(d => d.id === item.id ? { ...d, price: e.target.value } : d))} />
-                      <Input placeholder="Giá gốc (tùy chọn)" value={item.originalPrice ?? ''}
-                        onChange={(e) => setDemoProducts(prev => prev.map(d => d.id === item.id ? { ...d, originalPrice: e.target.value } : d))} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="Danh mục (VD: Thùng carton)" value={item.category ?? ''}
-                        onChange={(e) => setDemoProducts(prev => prev.map(d => d.id === item.id ? { ...d, category: e.target.value } : d))} />
-                    </div>
-                    <SettingsImageUploader
-                      label="Ảnh sản phẩm"
-                      value={item.image ?? ''}
-                      onChange={(url) => setDemoProducts(prev => prev.map(d => d.id === item.id ? { ...d, image: url ?? '' } : d))}
-                      folder="home-components/product-grid"
-                      naming={{ entityName: item.name || 'demo-product', field: 'image', index: index + 1 }}
-                      previewSize="sm"
+              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                {demoProducts.map((item, index) => (
+                  <DemoItemRowShell
+                    key={item.id}
+                    index={index}
+                    image={item.image}
+                    placeholderIcon={<Package size={12} />}
+                    onRemove={() => removeDemoProduct(item.id)}
+                    footer={
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="Giá gốc (tùy chọn)" value={item.originalPrice ?? ''} className="h-7 text-xs"
+                          onChange={(e) => updateDemoProduct(item.id, { originalPrice: e.target.value })} />
+                        <Input placeholder="Danh mục" value={item.category ?? ''} className="h-7 text-xs"
+                          onChange={(e) => updateDemoProduct(item.id, { category: e.target.value })} />
+                        <SettingsImageUploader
+                          label="Ảnh sản phẩm"
+                          value={item.image ?? ''}
+                          onChange={(url) => updateDemoProduct(item.id, { image: url ?? '' })}
+                          folder="home-components/product-grid"
+                          naming={{ entityName: item.name || 'demo-product', field: 'image', index: index + 1 }}
+                          previewSize="sm"
+                        />
+                      </div>
+                    }
+                  >
+                    <DemoPrimaryFields
+                      name={item.name}
+                      namePlaceholder="Tên sản phẩm *"
+                      onNameChange={v => updateDemoProduct(item.id, { name: v })}
+                      link={item.link ?? ''}
+                      onLinkChange={v => updateDemoProduct(item.id, { link: v })}
                     />
-                  </div>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-500 shrink-0 mt-1"
-                    onClick={() => setDemoProducts(prev => prev.length > 1 ? prev.filter(d => d.id !== item.id) : prev)}>
-                    <Trash2 size={14} />
-                  </Button>
-                </div>
-              ))}
+                    <Input placeholder="Giá (VD: 350.000đ)" value={item.price ?? ''} className="h-8 w-28 text-xs shrink-0"
+                      onChange={(e) => updateDemoProduct(item.id, { price: e.target.value })} />
+                  </DemoItemRowShell>
+                ))}
+              </div>
               {demoProducts.length === 0 && (
-                <div className="text-center py-6 text-sm text-slate-500">
-                  Chưa có sản phẩm demo.{' '}
-                  <button type="button" className="text-blue-600 hover:underline"
-                    onClick={() => setDemoProducts(DEFAULT_DEMO_PRODUCTS.map((d, i) => ({ ...d, id: `demo-${Date.now() + i}` })))}>
-                    Tạo mặc định
-                  </button>
+                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 py-8 text-center dark:border-slate-700">
+                  <Package size={24} className="mb-2 text-slate-300" />
+                  <p className="text-sm text-slate-500 mb-3">Chưa có sản phẩm demo</p>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" className="gap-1" onClick={loadDefaultDemo}>
+                      <RotateCcw size={12} /> Tải mẫu
+                    </Button>
+                    <AiDemoProductsImport buttonClassName="h-9" onApply={setDemoProducts} />
+                    <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addDemoProduct}>
+                      <Plus size={12} /> Thêm mới
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

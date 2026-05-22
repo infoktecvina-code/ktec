@@ -17,6 +17,7 @@ export interface DemoBlogItem {
   category?: string;
   date?: string;
   author?: string;
+  link?: string;
 }
 
 export interface BlogConfig extends Record<string, unknown> {

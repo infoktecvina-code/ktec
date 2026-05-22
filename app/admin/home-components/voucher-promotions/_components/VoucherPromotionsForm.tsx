@@ -9,6 +9,7 @@ import type { DemoVoucherPromotionItem, VoucherPromotionsCornerRadius, VoucherPr
 import { AiDemoVouchersImport } from '../../product-list/_components/AiDemoProductsImport';
 import { CollapsibleSubSection as SubSection } from '../../_shared/components/CollapsibleSubSection';
 import { useFormSectionsState } from '../../_shared/hooks/useFormSectionsState';
+import { useDemoItemList } from '../../_shared/hooks/useDemoItemList';
 import { FormSectionsToggleAllButton } from '../../_shared/components/FormSectionsToggleAllButton';
 import { HomeComponentDisplaySettingsSection } from '../../_shared/components/HomeComponentDisplaySettingsSection';
 import type { SectionSpacing } from '../../_shared/types/sectionSpacing';
@@ -179,32 +180,21 @@ export function VoucherPromotionsForm({
     defaultExpanded
   );
 
-  const addDemoItem = () => {
-    setDemoVouchers((prev) => [
-      ...prev,
-      {
-        id: `demo-voucher-${Date.now()}`,
+  const { add: addDemoItem, update: updateDemoItem, remove: removeDemoItem, loadDefault: loadDefaultDemo } = useDemoItemList(
+    demoVouchers,
+    setDemoVouchers,
+    {
+      createEmpty: () => ({
         code: '',
         name: '',
         description: '',
-        discountType: 'percent',
+        discountType: 'percent' as const,
         discountValue: 10,
-      },
-    ]);
-  };
-
-  const updateDemoItem = (id: string, patch: Partial<DemoVoucherPromotionItem>) => {
-    setDemoVouchers((prev) => prev.map((item) => item.id === id ? { ...item, ...patch } : item));
-  };
-
-  const removeDemoItem = (id: string) => {
-    if (demoVouchers.length <= 1) {return;}
-    setDemoVouchers((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  const loadDefaultDemo = () => {
-    setDemoVouchers(DEFAULT_DEMO_VOUCHERS.map((item, index) => ({ ...item, id: `demo-voucher-${Date.now() + index}` })));
-  };
+      }),
+      defaults: DEFAULT_DEMO_VOUCHERS,
+      minItems: 1,
+    },
+  );
 
   return (
     <Card className="mb-6">
