@@ -29,6 +29,7 @@ export const PartnersMarqueeShared = ({
   items,
   title,
   subheading,
+  badgeText,
   align: _align = 'center',
   displayMode = 'withName',
   logoSize = 'normal',
@@ -45,6 +46,7 @@ export const PartnersMarqueeShared = ({
   items: PartnerMarqueeItem[];
   title?: string;
   subheading?: React.ReactNode;
+  badgeText?: string;
   align?: PartnersAlign;
   displayMode?: PartnersDisplayMode;
   logoSize?: PartnersLogoSize;
@@ -118,24 +120,30 @@ export const PartnersMarqueeShared = ({
   return (
     <section className={cn('w-full', sectionSpacingClassName, className)} style={{ backgroundColor: '#f7f3ee' }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-        <div className={cn('flex flex-col lg:flex-row lg:items-start', columnGapClassName)}>
+        <div className={cn('flex flex-col lg:flex-row lg:items-center', columnGapClassName)}>
           {/* Cột trái: Header text */}
           <div className="flex-shrink-0 lg:w-[320px] xl:w-[360px]">
-            <div className="flex flex-col items-start text-left">
+            <div className={cn(
+              "flex flex-col",
+              _align === 'left' ? "items-start text-left" : _align === 'right' ? "items-end text-right" : "items-center text-center"
+            )}>
               {/* Badge — short label */}
-              <span
-                className={cn('inline-block rounded-sm border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600 md:text-[11px]', spacing === 'none' ? 'mb-0' : spacing === 'compact' ? 'mb-2' : 'mb-4')}
-                style={{ borderColor: '#d1ccc6' }}
-              >
-                Đối tác chúng tôi
-              </span>
+              {badgeText && (
+                <span
+                  className={cn('inline-block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600 md:text-[11px]', spacing === 'none' ? 'mb-0' : spacing === 'compact' ? 'mb-1' : 'mb-2')}
+                >
+                  {badgeText}
+                </span>
+              )}
               {/* Title — italic style */}
-              <h2
-                className="text-xl font-bold leading-snug tracking-tight md:text-2xl xl:text-[1.65rem]"
-                style={{ color: '#1a1a2e', fontStyle: 'italic' }}
-              >
-                {title || 'Tự Hào Là Đối Tác Tin Cậy'}
-              </h2>
+              {title && (
+                <h2
+                  className="text-xl font-bold leading-snug tracking-tight md:text-2xl xl:text-[1.65rem]"
+                  style={{ color: '#1a1a2e', fontStyle: 'italic' }}
+                >
+                  {title}
+                </h2>
+              )}
               {/* Description — subheading */}
               {subheading && (
                 <p className={cn('text-sm leading-relaxed text-slate-500 md:text-[13px] md:leading-relaxed', spacing === 'none' ? 'mt-0' : spacing === 'compact' ? 'mt-1.5' : 'mt-3')}>

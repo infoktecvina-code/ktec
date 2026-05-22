@@ -132,7 +132,20 @@ function HomeComponentsPage() {
     );
   }
   
-  const sortedComponents = [...components].sort((a, b) => a.order - b.order);
+  const getSortWeight = (type: string) => {
+    if (type === 'Footer') return 2;
+    if (type === 'SpeedDial') return 1;
+    return 0;
+  };
+
+  const sortedComponents = [...components].sort((a, b) => {
+    const weightA = getSortWeight(a.type);
+    const weightB = getSortWeight(b.type);
+    if (weightA !== weightB) {
+      return weightA - weightB;
+    }
+    return a.order - b.order;
+  });
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;

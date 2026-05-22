@@ -57,7 +57,7 @@ const mapServiceToPreview = (
   image: service.thumbnail,
   description: service.excerpt,
   price: service.price,
-  tag: index === 0 ? 'hot' : (index === 1 ? 'new' : undefined),
+  tag: (service as any).tag, // Fallback if tag is passed through somehow, otherwise undefined
   href: service.slug ? buildDetailPath({
     categorySlug: params.categorySlugMap.get(service.categoryId),
     mode: params.routeMode,
@@ -130,6 +130,7 @@ export function ServiceListSection({
         thumbnail: item.image,
         title: item.name,
         views: 0,
+        tag: item.tag,
       }));
     }
 

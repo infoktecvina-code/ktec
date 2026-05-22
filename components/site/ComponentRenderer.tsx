@@ -3404,7 +3404,6 @@ function GallerySection({ config, brandColor, secondary, mode, title, type }: { 
     );
   }
 
-  // Style: Marquee - 2-column layout (header left, logo grid right)
   if (style === 'marquee') {
     return (
       <PartnersMarqueeShared
@@ -3412,9 +3411,10 @@ function GallerySection({ config, brandColor, secondary, mode, title, type }: { 
         brandColor={brandColor}
         secondary={secondary}
         mode={mode}
-        title={title}
-        subheading={partnersSubheading}
-        align={partnersAlign}
+        title={partnersHeaderConfig.showTitle !== false ? title : undefined}
+        subheading={partnersHeaderConfig.showSubtitle !== false ? (partnersHeaderConfig.subtitle || partnersSubheading) : undefined}
+        badgeText={partnersHeaderConfig.showBadge !== false ? partnersHeaderConfig.badgeText : undefined}
+        align={partnersHeaderConfig.headerAlign ?? partnersAlign}
         displayMode={partnersDisplayMode}
         logoSize={partnersLogoSize}
         spacing={partnersSpacing}
@@ -3422,7 +3422,7 @@ function GallerySection({ config, brandColor, secondary, mode, title, type }: { 
         renderImage={(item, className) => (
           <SiteImage src={item.url} alt={item.name ?? ''} className={className} mode="logo" />
         )}
-        skipHeader={false}
+        skipHeader={partnersHeaderConfig.hideHeader === true}
       />
     );
   }
