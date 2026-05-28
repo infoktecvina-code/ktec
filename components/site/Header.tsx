@@ -561,7 +561,7 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
     };
     return new Map<Id<'menuItems'>, number>(rootItems.map((root) => [root._id, getNodeMaxLevel(root, 1)]));
   }, [rootItems]);
-  const isDeepMenuForItem = useCallback((itemId: Id<'menuItems'>) => (maxLevelByRootId.get(itemId) ?? 1) >= 4, [maxLevelByRootId]);
+  const isDeepMenuForItem = useCallback((itemId: Id<'menuItems'>) => (maxLevelByRootId.get(itemId) ?? 1) >= 3, [maxLevelByRootId]);
 
   useLayoutEffect(() => {
     if (measureItemRefs.current.length !== rootItems.length) {
@@ -821,11 +821,15 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
           {node.children.length > 0 && (
             <div className={cn('absolute top-0 z-50 hidden', flyoutPositionClass)}>
               <div
-                className={cn(r.dropdown, 'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl group-hover/menu-node:block overflow-y-auto scrollbar-menu-thin')}
+                className={cn(
+                  r.dropdown,
+                  'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl group-hover/menu-node:block',
+                  !node.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                )}
                 style={{
                   backgroundColor: tokens.dropdownBg,
                   borderColor: tokens.dropdownBorder,
-                  maxHeight: 'min(60vh, 290px)',
+                  maxHeight: !node.children.some((child) => child.children && child.children.length > 0) ? 'min(60vh, 290px)' : undefined,
                 }}
               >
                 {renderDesktopFlyoutNodes(node.children, deepMode)}
@@ -864,11 +868,15 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
         {node.children.length > 0 && isLevel4Open && (
           <div className="absolute left-full top-0 ml-1 z-50">
             <div
-              className={cn(r.dropdown, 'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl overflow-y-auto scrollbar-menu-thin')}
+              className={cn(
+                r.dropdown,
+                'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl',
+                !node.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+              )}
               style={{
                 backgroundColor: tokens.dropdownBg,
                 borderColor: tokens.dropdownBorder,
-                maxHeight: 'min(60vh, 290px)',
+                maxHeight: !node.children.some((child) => child.children && child.children.length > 0) ? 'min(60vh, 290px)' : undefined,
               }}
             >
               {node.children.map((child) => (
@@ -1151,11 +1159,15 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                                             onMouseLeave={scheduleDeepMenuClose}
                                           >
                                             <div
-                                              className={cn(r.dropdown, 'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl overflow-y-auto scrollbar-menu-thin')}
+                                              className={cn(
+                                                r.dropdown,
+                                                'border py-2 min-w-[220px] max-w-[min(300px,calc(100vw-2rem))] shadow-xl',
+                                                !sub.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                                              )}
                                               style={{
                                                 backgroundColor: tokens.dropdownBg,
                                                 borderColor: tokens.dropdownBorder,
-                                                maxHeight: 'min(60vh, 290px)',
+                                                maxHeight: !sub.children.some((child) => child.children && child.children.length > 0) ? 'min(60vh, 290px)' : undefined,
                                               }}
                                             >
                                               {renderDesktopFlyoutNodes(sub.children, true)}
@@ -1172,12 +1184,15 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                         </div>
                       ) : (
                         <div
-                          className="rounded-lg border py-2 min-w-[200px] overflow-y-auto scrollbar-menu-thin"
+                          className={cn(
+                            "rounded-lg border py-2 min-w-[200px]",
+                            !item.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                          )}
                           style={{
                             backgroundColor: tokens.dropdownBg,
                             borderColor: tokens.dropdownBorder,
                             maxWidth: getViewportSafeMaxWidth(),
-                            maxHeight: 'min(70vh, 290px)',
+                            maxHeight: !item.children.some((child) => child.children && child.children.length > 0) ? 'min(70vh, 290px)' : undefined,
                           }}
                         >
                           {item.children.map((child) => (
@@ -1731,7 +1746,18 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                                           onMouseEnter={clearDeepMenuCloseIntent}
                                           onMouseLeave={scheduleDeepMenuClose}
                                         >
-                                          <div className={cn(r.dropdown, 'border py-2 min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] shadow-lg overflow-y-auto scrollbar-menu-thin')} style={{ backgroundColor: tokens.dropdownBg, borderColor: tokens.dropdownBorder, maxHeight: 'min(70vh, 290px)' }}>
+                                          <div 
+                                            className={cn(
+                                              r.dropdown,
+                                              'border py-2 min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] shadow-lg',
+                                              !sub.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                                            )}
+                                            style={{
+                                              backgroundColor: tokens.dropdownBg,
+                                              borderColor: tokens.dropdownBorder,
+                                              maxHeight: !sub.children.some((child) => child.children && child.children.length > 0) ? 'min(70vh, 290px)' : undefined,
+                                            }}
+                                          >
                                             {renderDesktopFlyoutNodes(sub.children, true)}
                                           </div>
                                         </div>
@@ -1746,12 +1772,16 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                       </div>
                     ) : (
                       <div
-                        className={cn(r.dropdown, 'border py-2 min-w-[200px] overflow-y-auto scrollbar-menu-thin')}
+                        className={cn(
+                          r.dropdown,
+                          'border py-2 min-w-[200px]',
+                          !item.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                        )}
                         style={{
                           backgroundColor: tokens.dropdownBg,
                           borderColor: tokens.dropdownBorder,
                           maxWidth: getViewportSafeMaxWidth(),
-                          maxHeight: 'min(70vh, 290px)',
+                          maxHeight: !item.children.some((child) => child.children && child.children.length > 0) ? 'min(70vh, 290px)' : undefined,
                         }}
                       >
                         {item.children.map((child) => (
@@ -1995,13 +2025,17 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                                               onMouseLeave={scheduleDeepMenuClose}
                                             >
                                               <div 
-                                             className={cn(r.dropdown, 'border py-2 min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] shadow-lg overflow-y-auto scrollbar-menu-thin')} 
-                                             style={{ 
-                                               backgroundColor: tokens.dropdownBg, 
-                                               borderColor: tokens.dropdownBorder,
-                                                maxHeight: 'min(70vh, 290px)',
-                                             }}
-                                           >
+                                                className={cn(
+                                                  r.dropdown,
+                                                  'border py-2 min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] shadow-lg',
+                                                  !sub.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                                                )}
+                                                style={{ 
+                                                  backgroundColor: tokens.dropdownBg, 
+                                                  borderColor: tokens.dropdownBorder,
+                                                  maxHeight: !sub.children.some((child) => child.children && child.children.length > 0) ? 'min(70vh, 290px)' : undefined,
+                                                }}
+                                              >
                                                 {renderDesktopFlyoutNodes(sub.children, true)}
                                               </div>
                                             </div>
@@ -2016,12 +2050,16 @@ export function Header({ initialData, staticMode }: { initialData?: HeaderInitia
                           </div>
                         ) : (
                           <div
-                            className={cn(r.dropdown, 'border py-2 min-w-[240px] overflow-y-auto scrollbar-menu-thin')}
+                            className={cn(
+                              r.dropdown,
+                              'border py-2 min-w-[240px]',
+                              !item.children.some((child) => child.children && child.children.length > 0) && "overflow-y-auto scrollbar-menu-thin"
+                            )}
                             style={{
                               backgroundColor: tokens.dropdownBg,
                               borderColor: tokens.dropdownBorder,
                               maxWidth: getViewportSafeMaxWidth(),
-                              maxHeight: 'min(70vh, 290px)',
+                              maxHeight: !item.children.some((child) => child.children && child.children.length > 0) ? 'min(70vh, 290px)' : undefined,
                             }}
                           >
                             {item.children.map((child) => (
