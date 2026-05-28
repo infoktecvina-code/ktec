@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { getExtensionFromMime } from "../lib/image/uploadNaming";
-import { listFileUsagesByStorageId, removeFileReferencesForStorage } from "./lib/fileService";
+import { extractStorageUrlKey, listFileUsagesByStorageId, removeFileReferencesForStorage } from "./lib/fileService";
 
 // ============ VALIDATORS ============
 const mediaUsage = v.object({
@@ -28,6 +28,7 @@ const mediaDoc = v.object({
   uploadedBy: v.optional(v.id("users")),
   usageCheckedAt: v.optional(v.number()),
   usageCount: v.optional(v.number()),
+  urlStorageKey: v.optional(v.string()),
   usages: v.optional(v.array(mediaUsage)),
   width: v.optional(v.number()),
 });
@@ -48,6 +49,7 @@ const mediaWithUrl = v.object({
   url: v.union(v.string(), v.null()),
   usageCheckedAt: v.optional(v.number()),
   usageCount: v.optional(v.number()),
+  urlStorageKey: v.optional(v.string()),
   usages: v.optional(v.array(mediaUsage)),
   width: v.optional(v.number()),
 });
@@ -188,10 +190,52 @@ async function resolveMediaUsageMap(
   const candidates = mediaItems.map(media => {
     const id = normalizeValue(media._id);
     usageMap.set(id, []);
-    return { id, storageId: normalizeValue(media.storageId), url: urlsById.get(id) ?? null };
+    return { id, storageId: normalizeValue(media.storageId), rawStorageId: media.storageId, url: urlsById.get(id) ?? null };
   });
 
   if (candidates.length === 0) {return { scanComplete: true, usageMap };}
+
+  // 1. Scan fileReferences (Source of Truth for Modern Usages)
+  for (const candidate of candidates) {
+    if (candidate.rawStorageId) {
+      const references = fullScan 
+        ? await ctx.db.query("fileReferences").withIndex("by_storageId", q => q.eq("storageId", candidate.rawStorageId as any)).collect()
+        : await ctx.db.query("fileReferences").withIndex("by_storageId", q => q.eq("storageId", candidate.rawStorageId as any)).take(MAX_USAGE_SCAN_PER_TABLE + 1);
+        
+      const trimmedRefs = trimUsageRecords(references, scanState);
+      const usages = usageMap.get(candidate.id) ?? [];
+      for (const ref of trimmedRefs) {
+        let record = null;
+        let isConvexId = false;
+        try {
+          const normalizedId = ctx.db.normalizeId(ref.ownerTable as any, ref.ownerId);
+          if (normalizedId) {
+            isConvexId = true;
+            record = await ctx.db.get(normalizedId);
+          }
+        } catch {
+          // Ignore invalid table names
+        }
+
+        if (isConvexId && !record) {
+          // Orphaned reference, skip
+          continue;
+        }
+
+        if (record) {
+          addUsageToMap(usageMap, candidate.id, ref.ownerTable, record, ref.ownerField);
+        } else {
+          usages.push({
+            field: ref.ownerField,
+            label: ref.purpose ?? ref.ownerId,
+            recordId: ref.ownerId,
+            table: ref.ownerTable,
+          });
+        }
+      }
+      usageMap.set(candidate.id, usages);
+    }
+  }
 
   const users = fullScan ? await ctx.db.query("users").collect() : trimUsageRecords(await ctx.db.query("users").take(MAX_USAGE_SCAN_PER_TABLE + 1), scanState);
   users.forEach(record => collectUsageMatches(usageMap, candidates, "users", record, "avatar", record.avatar));
@@ -222,19 +266,10 @@ async function resolveMediaUsageMap(
     collectUsageMatches(usageMap, candidates, "productVariants", record, "images", record.images);
   });
 
-  const productImageFrames = fullScan ? await ctx.db.query("productImageFrames").collect() : trimUsageRecords(await ctx.db.query("productImageFrames").take(MAX_USAGE_SCAN_PER_TABLE + 1), scanState);
-  productImageFrames.forEach(record => {
-    collectUsageMatches(usageMap, candidates, "productImageFrames", record, "overlayStorageId", record.overlayStorageId);
-    collectUsageMatches(usageMap, candidates, "productImageFrames", record, "overlayImageUrl", record.overlayImageUrl);
-    collectUsageMatches(usageMap, candidates, "productImageFrames", record, "logoConfig", record.logoConfig);
-    collectUsageMatches(usageMap, candidates, "productImageFrames", record, "metadata", record.metadata);
-  });
-
   const productSupplementalContents = fullScan ? await ctx.db.query("productSupplementalContents").collect() : trimUsageRecords(await ctx.db.query("productSupplementalContents").take(MAX_USAGE_SCAN_PER_TABLE + 1), scanState);
   productSupplementalContents.forEach(record => {
     collectUsageMatches(usageMap, candidates, "productSupplementalContents", record, "preContent", record.preContent);
     collectUsageMatches(usageMap, candidates, "productSupplementalContents", record, "postContent", record.postContent);
-    collectUsageMatches(usageMap, candidates, "productSupplementalContents", record, "faqItems", record.faqItems);
   });
 
   const postCategories = fullScan ? await ctx.db.query("postCategories").collect() : trimUsageRecords(await ctx.db.query("postCategories").take(MAX_USAGE_SCAN_PER_TABLE + 1), scanState);
@@ -407,6 +442,39 @@ export const listWithUrlsAndUsage = query({
     });
   },
   returns: v.array(v.any()),
+});
+
+export const listWithUrlsAndUsagePaginated = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const result = await ctx.db.query("images").order("desc").paginate(args.paginationOpts);
+    
+    const urlsById = new Map<string, string | null>();
+    await Promise.all(result.page.map(async (img) => {
+      urlsById.set(normalizeValue(img._id), await ctx.storage.getUrl(img.storageId));
+    }));
+    const uncheckedImages = result.page.filter(img => img.usageCheckedAt === undefined);
+    const { usageMap } = await resolveMediaUsageMap(ctx, uncheckedImages, urlsById);
+
+    const enrichedPage = result.page.map((img) => {
+      const id = normalizeValue(img._id);
+      const scannedUsages = usageMap.get(id) ?? [];
+      const usages = img.usageCheckedAt === undefined ? scannedUsages : (img.usages ?? []);
+      return {
+        ...img,
+        isOrphan: img.usageCheckedAt === undefined ? usages.length === 0 : img.isOrphan,
+        usageCount: img.usageCheckedAt === undefined ? usages.length : img.usageCount,
+        usages,
+        url: urlsById.get(id) ?? null,
+      };
+    });
+
+    return {
+      ...result,
+      page: enrichedPage,
+    };
+  },
+  returns: v.any(),
 });
 
 export const recheckUsageForMedia = mutation({
@@ -601,8 +669,13 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const extension = resolveExtension(args.filename, args.mimeType);
-    const id = await ctx.db.insert("images", { ...args, extension });
     const url = await ctx.storage.getUrl(args.storageId);
+    const urlStorageKey = extractStorageUrlKey(url);
+    const id = await ctx.db.insert("images", {
+      ...args,
+      extension,
+      ...(urlStorageKey ? { urlStorageKey } : {}),
+    });
 
     // Update counters
     const typeKey = getMediaTypeKey(args.mimeType);

@@ -4,20 +4,23 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { LayoutTemplate, Loader2, Palette, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from 'convex/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 import { revalidateSeoPaths } from '@/app/actions/seo-revalidate';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, cn } from '../../components/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Checkbox, Input, Label, cn } from '../../components/ui';
 import { ModuleGuard } from '../../components/ModuleGuard';
 import { SettingsImageUploader } from '../../components/SettingsImageUploader';
 import { TagInput } from '../../components/TagInput';
 import MapLocationPicker from '../MapLocationPicker';
 import { HomeComponentStickyFooter } from '@/app/admin/home-components/_shared/components/HomeComponentStickyFooter';
+import { AiSeoImportDialog } from './AiSeoImportDialog';
+import { SeoBuilderDialog } from './SeoBuilderDialog';
+import { ProductSupplementalContentManager } from './ProductSupplementalContentManager';
 
 type SettingsSection = 'site' | 'contact' | 'seo' | 'advanced';
 type SettingsFormValue = string | boolean;
-type AdvancedTab = 'product-placeholder' | 'header';
+type AdvancedTab = 'product-placeholder' | 'product-frame' | 'watermark' | 'header' | 'product-supplemental';
 type HeaderConfig = {
   showBrandName?: boolean;
   logoSizeLevel?: number;
@@ -201,6 +204,8 @@ export default function SettingsPageShell({ section }: { section: SettingsSectio
 
 function SettingsContent({ section }: { section: SettingsSection }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
   const [form, setForm] = useState<Record<string, SettingsFormValue>>({});
   const [initialForm, setInitialForm] = useState<Record<string, SettingsFormValue>>({});
   const [mediaStorageIds, setMediaStorageIds] = useState<Record<string, Id<'_storage'> | null>>({});
@@ -211,11 +216,75 @@ function SettingsContent({ section }: { section: SettingsSection }) {
   const [advancedTab, setAdvancedTab] = useState<AdvancedTab>('product-placeholder');
   const [headerConfigDraft, setHeaderConfigDraft] = useState<HeaderConfig>(DEFAULT_HEADER_CONFIG);
   const [initialHeaderConfig, setInitialHeaderConfig] = useState<HeaderConfig>(DEFAULT_HEADER_CONFIG);
+  const [activeDrag, setActiveDrag] = useState<'image-move' | 'image-resize' | 'text-move' | null>(null);
+  const previewCanvasRef = React.useRef<HTMLDivElement>(null);
 
   // Queries
   const settingsData = useQuery(api.settings.listAll);
   const featuresData = useQuery(api.admin.modules.listModuleFeatures, { moduleKey: MODULE_KEY });
   const fieldsData = useQuery(api.admin.modules.listModuleFields, { moduleKey: MODULE_KEY });
+  const defaultImageAspectRatio = useQuery(api.admin.modules.getModuleSetting, { moduleKey: 'products', settingKey: 'defaultImageAspectRatio' });
+  const productsSettings = useQuery(api.admin.modules.listModuleSettings, { moduleKey: 'products' });
+  const [selectedFrameAR, setSelectedFrameAR] = useState<string>('');
+
+  const enableSupplementalContent = useMemo(
+    () => productsSettings?.find(s => s.settingKey === 'enableProductSupplementalContent')?.value === true,
+    [productsSettings]
+  );
+
+  useEffect(() => {
+    if (tabParam === 'product-supplemental' && enableSupplementalContent) {
+      setAdvancedTab('product-supplemental');
+    }
+  }, [tabParam, enableSupplementalContent]);
+
+  const handlePreviewPointerDown = (e: React.PointerEvent<HTMLDivElement>, type: 'image-move' | 'image-resize' | 'text-move') => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (err) {
+      console.warn('setPointerCapture failed', err);
+    }
+    setActiveDrag(type);
+  };
+
+  const handlePreviewPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!activeDrag) return;
+    const canvas = previewCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const xPx = e.clientX - rect.left;
+    const yPx = e.clientY - rect.top;
+    
+    // Convert to percentage
+    const xPct = Math.min(100, Math.max(0, Math.round((xPx / rect.width) * 100)));
+    const yPct = Math.min(100, Math.max(0, Math.round((yPx / rect.height) * 100)));
+
+    if (activeDrag === 'image-move') {
+      updateField('product_watermark_image_x', String(xPct));
+      updateField('product_watermark_image_y', String(yPct));
+    } else if (activeDrag === 'text-move') {
+      updateField('product_watermark_text_y', String(yPct));
+    } else if (activeDrag === 'image-resize') {
+      const imageX = parseFloat(String(form.product_watermark_image_x || 80));
+      const imageXPx = (imageX / 100) * rect.width;
+      const halfWidthPx = Math.abs(e.clientX - rect.left - imageXPx);
+      const widthPct = Math.min(80, Math.max(5, Math.round((halfWidthPx * 2 / rect.width) * 100)));
+      updateField('product_watermark_image_width', String(widthPct));
+    }
+  };
+
+  const handlePreviewPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (activeDrag) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      setActiveDrag(null);
+    }
+  };
 
   // Mutations
   const setMultiple = useMutation(api.settings.setMultiple);
@@ -315,6 +384,76 @@ function SettingsContent({ section }: { section: SettingsSection }) {
       }
       if (values.product_image_placeholder === undefined) {
         values.product_image_placeholder = '';
+      }
+      if (values.product_frame_overlay_url === undefined) {
+        values.product_frame_overlay_url = '';
+      }
+      if (values.enable_product_frames === undefined) {
+        values.enable_product_frames = false;
+      }
+      const frameKeys = [
+        'product_frame_overlay_square_url',
+        'product_frame_overlay_portrait916_url',
+        'product_frame_overlay_portrait34_url',
+        'product_frame_overlay_landscape43_url',
+        'product_frame_overlay_wide169_url',
+      ];
+      frameKeys.forEach((key) => {
+        if (values[key] === undefined) {
+          values[key] = '';
+        }
+      });
+      // Tự động chuyển đổi/tương thích ngược: map khung viền cũ sang ô Vuông (1:1) nếu ô Vuông trống
+      if (!values.product_frame_overlay_square_url && values.product_frame_overlay_url) {
+        values.product_frame_overlay_square_url = values.product_frame_overlay_url;
+        if (storageIds.product_frame_overlay_url) {
+          storageIds.product_frame_overlay_square_url = storageIds.product_frame_overlay_url;
+        }
+      }
+      if (values.enable_product_watermark === undefined) {
+        values.enable_product_watermark = false;
+      }
+      // Defaults cho watermark hình
+      if (values.product_watermark_image_enabled === undefined) {
+        values.product_watermark_image_enabled = false;
+      }
+      if (values.product_watermark_image_url === undefined) {
+        values.product_watermark_image_url = '';
+      }
+      if (values.product_watermark_image_x === undefined) {
+        values.product_watermark_image_x = '80';
+      }
+      if (values.product_watermark_image_y === undefined) {
+        values.product_watermark_image_y = '80';
+      }
+      if (values.product_watermark_image_width === undefined) {
+        values.product_watermark_image_width = '28';
+      }
+      if (values.product_watermark_image_opacity === undefined) {
+        values.product_watermark_image_opacity = '40';
+      }
+
+      // Defaults cho watermark chữ
+      if (values.product_watermark_text_enabled === undefined) {
+        values.product_watermark_text_enabled = false;
+      }
+      if (values.product_watermark_text_content === undefined) {
+        values.product_watermark_text_content = '';
+      }
+      if (values.product_watermark_text_y === undefined) {
+        values.product_watermark_text_y = '80';
+      }
+      if (values.product_watermark_text_font_size === undefined) {
+        values.product_watermark_text_font_size = '8';
+      }
+      if (values.product_watermark_text_color === undefined) {
+        values.product_watermark_text_color = '#64748B';
+      }
+      if (values.product_watermark_text_opacity === undefined) {
+        values.product_watermark_text_opacity = '35';
+      }
+      if (values.product_watermark_text_repeat === undefined) {
+        values.product_watermark_text_repeat = false;
       }
       setIsSecondaryAuto(values.site_brand_mode === 'single' ? true : !values.site_brand_secondary);
       setForm(values);
@@ -513,6 +652,67 @@ function SettingsContent({ section }: { section: SettingsSection }) {
           value: form.product_image_placeholder || '',
         });
       }
+      if (!settingsToSave.some((item) => item.key === 'product_frame_overlay_url')) {
+        settingsToSave.push({
+          group: 'advanced',
+          key: 'product_frame_overlay_url',
+          storageId: mediaStorageIds.product_frame_overlay_url ?? null,
+          value: form.product_frame_overlay_url || '',
+        });
+      }
+      const frameKeys = [
+        'product_frame_overlay_square_url',
+        'product_frame_overlay_portrait916_url',
+        'product_frame_overlay_portrait34_url',
+        'product_frame_overlay_landscape43_url',
+        'product_frame_overlay_wide169_url',
+      ];
+      frameKeys.forEach((key) => {
+        if (!settingsToSave.some((item) => item.key === key)) {
+          settingsToSave.push({
+            group: 'advanced',
+            key,
+            storageId: mediaStorageIds[key] ?? null,
+            value: form[key] || '',
+          });
+        }
+      });
+      // Save watermark settings
+      const watermarkKeys = [
+        'enable_product_watermark',
+        'product_watermark_image_enabled',
+        'product_watermark_image_url',
+        'product_watermark_image_x',
+        'product_watermark_image_y',
+        'product_watermark_image_width',
+        'product_watermark_image_opacity',
+        'product_watermark_text_enabled',
+        'product_watermark_text_content',
+        'product_watermark_text_y',
+        'product_watermark_text_font_size',
+        'product_watermark_text_color',
+        'product_watermark_text_opacity',
+        'product_watermark_text_repeat',
+      ];
+      watermarkKeys.forEach((key) => {
+        if (!settingsToSave.some((item) => item.key === key)) {
+          let value = form[key] ?? '';
+          if (
+            key === 'enable_product_watermark' ||
+            key === 'product_watermark_image_enabled' ||
+            key === 'product_watermark_text_enabled' ||
+            key === 'product_watermark_text_repeat'
+          ) {
+            value = form[key] === true || form[key] === 'true';
+          }
+          settingsToSave.push({
+            group: 'advanced',
+            key,
+            ...(key === 'product_watermark_image_url' ? { storageId: mediaStorageIds.product_watermark_image_url ?? null } : {}),
+            value: String(value),
+          });
+        }
+      });
       if (canEditHeaderMenu && !settingsToSave.some((item) => item.key === 'header_config')) {
         settingsToSave.push({
           group: 'site',
@@ -873,14 +1073,15 @@ function SettingsContent({ section }: { section: SettingsSection }) {
       case 'image': {
         const isFaviconField = key === 'site_favicon';
         const isProductPlaceholderField = key === 'product_image_placeholder';
+        const isSeoImageField = key === 'seo_og_image';
         const logoValue = typeof form.site_logo === 'string' ? form.site_logo : '';
-        const handleUseLogo = (targetKey: 'site_favicon' | 'product_image_placeholder') => {
+        const handleUseLogo = (targetKey: 'site_favicon' | 'product_image_placeholder' | 'seo_og_image') => {
           if (!logoValue) {
             toast.error('Chưa có logo để dùng.');
             return;
           }
           updateImageField(targetKey, logoValue, mediaStorageIds.site_logo ?? null);
-          toast.success(targetKey === 'site_favicon' ? 'Đã dùng logo làm favicon.' : 'Đã dùng logo làm placeholder sản phẩm.');
+          toast.success(targetKey === 'site_favicon' ? 'Đã dùng logo làm favicon.' : targetKey === 'product_image_placeholder' ? 'Đã dùng logo làm placeholder sản phẩm.' : 'Đã dùng logo làm OG Image.');
         };
 
         return (
@@ -892,7 +1093,7 @@ function SettingsContent({ section }: { section: SettingsSection }) {
               onChange={(url, storageId) =>{  updateImageField(key, url, storageId); }}
               folder="settings"
               previewSize={key.includes('favicon') ? 'sm' : 'md'}
-              smartLogoCrop={key === 'site_logo'}
+              smartLogoCrop={false}
             />
             {isFaviconField && (
               <div className="flex flex-wrap gap-2">
@@ -932,6 +1133,27 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                   onClick={() =>{  updateImageField('product_image_placeholder', '', null); }}
                 >
                   Xóa placeholder
+                </Button>
+              </div>
+            )}
+            {isSeoImageField && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleUseLogo('seo_og_image')}
+                  disabled={!logoValue}
+                >
+                  Dùng logo hiện tại
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>{  updateImageField('seo_og_image', '', null); }}
+                >
+                  Xóa ảnh
                 </Button>
               </div>
             )}
@@ -1070,6 +1292,30 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                     >
                       Ảnh sản phẩm
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedTab('product-frame')}
+                      className={cn(
+                        'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        advancedTab === 'product-frame'
+                          ? 'border-orange-500 text-slate-900 dark:text-slate-100'
+                          : 'border-transparent text-slate-500 hover:text-slate-700'
+                      )}
+                    >
+                      Khung viền sản phẩm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedTab('watermark')}
+                      className={cn(
+                        'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                        advancedTab === 'watermark'
+                          ? 'border-orange-500 text-slate-900 dark:text-slate-100'
+                          : 'border-transparent text-slate-500 hover:text-slate-700'
+                      )}
+                    >
+                      Watermark
+                    </button>
                     {canEditHeaderMenu && (
                       <button
                         type="button"
@@ -1084,6 +1330,20 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                         Header
                       </button>
                     )}
+                    {enableSupplementalContent && (
+                      <button
+                        type="button"
+                        onClick={() => setAdvancedTab('product-supplemental')}
+                        className={cn(
+                          'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                          advancedTab === 'product-supplemental'
+                            ? 'border-orange-500 text-slate-900 dark:text-slate-100'
+                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                        )}
+                      >
+                        Nội dung mô tả SP
+                      </button>
+                    )}
                   </div>
 
                   {advancedTab === 'product-placeholder' && (
@@ -1095,7 +1355,7 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                             label="Ảnh placeholder sản phẩm"
                             value={typeof form.product_image_placeholder === 'string' ? form.product_image_placeholder : ''}
                             storageId={mediaStorageIds.product_image_placeholder ?? undefined}
-                            onChange={(url, storageId) =>{  updateImageField('product_image_placeholder', url, storageId); }}
+                            onChange={(url, storageId) => { updateImageField('product_image_placeholder', url, storageId); }}
                             folder="settings"
                             previewSize="md"
                           />
@@ -1121,7 +1381,7 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              onClick={() =>{  updateImageField('product_image_placeholder', '', null); }}
+                              onClick={() => { updateImageField('product_image_placeholder', '', null); }}
                             >
                               Xóa placeholder
                             </Button>
@@ -1131,6 +1391,398 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                           </p>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {advancedTab === 'product-frame' && (
+                    <div className="space-y-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            id="enable_product_frames"
+                            checked={form.enable_product_frames === true}
+                            onCheckedChange={(checked) => updateField('enable_product_frames', checked)}
+                          />
+                          <div className="space-y-0.5">
+                            <Label htmlFor="enable_product_frames" className="cursor-pointer font-semibold text-slate-900 dark:text-slate-100">Bật khung viền sản phẩm</Label>
+                            <p className="text-xs text-slate-500">
+                              Hiển thị khung viền đè lên ảnh sản phẩm ở storefront.
+                            </p>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {form.enable_product_frames !== true && (
+                        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300">
+                          Tính năng đang tắt. Hãy bật lên để hiển thị khung trên ảnh sản phẩm ngoài trang chủ và chi tiết sản phẩm.
+                        </div>
+                      )}
+
+                      {(() => {
+                        const frameItems = [
+                          { key: 'product_frame_overlay_square_url', label: 'Vuông (1:1)', value: 'square', aspectClass: 'aspect-square' },
+                          { key: 'product_frame_overlay_portrait916_url', label: 'Dọc (9:16)', value: 'portrait916', aspectClass: 'aspect-[9/16]' },
+                          { key: 'product_frame_overlay_portrait34_url', label: 'Dọc (3:4)', value: 'portrait34', aspectClass: 'aspect-[3/4]' },
+                          { key: 'product_frame_overlay_landscape43_url', label: 'Ngang (4:3)', value: 'landscape43', aspectClass: 'aspect-[4/3]' },
+                          { key: 'product_frame_overlay_wide169_url', label: 'Rộng (16:9)', value: 'wide169', aspectClass: 'aspect-[16/9]' },
+                        ];
+                        const systemAR = (defaultImageAspectRatio?.value as string) || 'square';
+                        const activeAR = selectedFrameAR || systemAR;
+                        const activeItem = frameItems.find(i => i.value === activeAR) || frameItems[0];
+                        const hasValue = typeof form[activeItem.key] === 'string' && form[activeItem.key];
+                        const uploadedCount = frameItems.filter(i => typeof form[i.key] === 'string' && form[i.key]).length;
+
+                        return (
+                          <div className="space-y-4">
+                            {/* Dropdown chọn AR */}
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                              <div className="flex-1">
+                                <Label className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 block">Chọn tỷ lệ khung hình</Label>
+                                <select
+                                  value={activeAR}
+                                  onChange={(e) => setSelectedFrameAR(e.target.value)}
+                                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                                >
+                                  {frameItems.map((item) => {
+                                    const isSystemDefault = item.value === systemAR;
+                                    const hasFrame = typeof form[item.key] === 'string' && form[item.key];
+                                    return (
+                                      <option key={item.value} value={item.value}>
+                                        {item.label}{isSystemDefault ? ' ★ Mặc định' : ''}{hasFrame ? ' ✓' : ''}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                              {uploadedCount > 0 && (
+                                <span className="text-xs text-slate-500 dark:text-slate-400 self-end pb-2">
+                                  {uploadedCount}/5 khung đã upload
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Uploader cho AR đang chọn */}
+                            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+                              <div className="flex items-center justify-between mb-3">
+                                <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{activeItem.label}</span>
+                                {activeAR === systemAR && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50">
+                                    Đang dùng mặc định
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="space-y-4">
+                                <SettingsImageUploader
+                                  key={activeItem.key}
+                                  label=""
+                                  value={typeof form[activeItem.key] === 'string' ? (form[activeItem.key] as string) : ''}
+                                  storageId={mediaStorageIds[activeItem.key] ?? undefined}
+                                  onChange={(url, storageId) => { updateImageField(activeItem.key, url, storageId); }}
+                                  folder="settings"
+                                  previewSize="md"
+                                />
+
+                                {hasValue ? (
+                                  <div className="space-y-2">
+                                    <div className="flex justify-end">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { updateImageField(activeItem.key, '', null); }}
+                                        className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs px-2 py-1 h-auto"
+                                      >
+                                        Xóa khung
+                                      </Button>
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                      <div className={cn("relative w-32 max-w-full border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center", activeItem.aspectClass)}>
+                                        <img
+                                          src={typeof form.product_image_placeholder === 'string' && form.product_image_placeholder ? form.product_image_placeholder : undefined}
+                                          alt=""
+                                          className="absolute inset-0 w-full h-full object-cover opacity-45"
+                                        />
+                                        <img
+                                          src={form[activeItem.key] as string}
+                                          alt="Preview khung viền"
+                                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                                        />
+                                        <span className="absolute bottom-1 left-0 right-0 text-center text-[9px] font-bold text-slate-500 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xs py-0.5">Preview</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="py-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50/50 dark:bg-slate-950/20">
+                                    <span className="text-xs text-slate-400 dark:text-slate-500">Chưa upload khung</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {advancedTab === 'watermark' && (
+                    <div className="space-y-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            id="enable_product_watermark"
+                            checked={form.enable_product_watermark === true || form.enable_product_watermark === 'true'}
+                            onCheckedChange={(checked) => updateField('enable_product_watermark', checked)}
+                          />
+                          <div className="space-y-0.5">
+                            <Label htmlFor="enable_product_watermark" className="cursor-pointer font-semibold text-slate-900 dark:text-slate-100">Bật watermark sản phẩm</Label>
+                            <p className="text-xs text-slate-500">
+                              Hiển thị watermark (chữ hoặc hình) đè lên ảnh sản phẩm ở storefront.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {form.enable_product_watermark !== true && (
+                        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300">
+                          Tính năng đang tắt. Hãy bật lên để hiển thị watermark trên ảnh sản phẩm ngoài trang chủ và chi tiết sản phẩm.
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                        {/* Cấu hình cột trái (7 cols) */}
+                        <div className="lg:col-span-7 space-y-6">
+                          {/* 1. Watermark Hình */}
+                          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Checkbox
+                                  id="product_watermark_image_enabled"
+                                  checked={form.product_watermark_image_enabled === true || form.product_watermark_image_enabled === 'true'}
+                                  onCheckedChange={(checked) => updateField('product_watermark_image_enabled', checked)}
+                                />
+                                <Label htmlFor="product_watermark_image_enabled" className="cursor-pointer font-semibold text-slate-900 dark:text-slate-100">Bật watermark hình (logo)</Label>
+                              </div>
+                            </div>
+
+                            {(form.product_watermark_image_enabled === true || form.product_watermark_image_enabled === 'true') && (
+                              <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                <SettingsImageUploader
+                                  label="Ảnh logo watermark"
+                                  value={typeof form.product_watermark_image_url === 'string' ? form.product_watermark_image_url : ''}
+                                  storageId={mediaStorageIds.product_watermark_image_url ?? undefined}
+                                  onChange={(url, storageId) => { updateImageField('product_watermark_image_url', url, storageId); }}
+                                  folder="settings"
+                                  previewSize="md"
+                                />
+
+                                {typeof form.product_watermark_image_url === 'string' && form.product_watermark_image_url && (
+                                  <div className="space-y-3">
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-xs text-slate-500">
+                                        <Label>Độ trong suốt logo</Label>
+                                        <span>{form.product_watermark_image_opacity ?? 40}%</span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        value={parseFloat(String(form.product_watermark_image_opacity ?? 40))}
+                                        onChange={(e) => updateField('product_watermark_image_opacity', e.target.value)}
+                                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-orange-500"
+                                      />
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { updateImageField('product_watermark_image_url', '', null); }}
+                                        className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 text-xs px-2 py-1 h-auto"
+                                      >
+                                        Xóa ảnh logo
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 2. Watermark Chữ */}
+                          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Checkbox
+                                  id="product_watermark_text_enabled"
+                                  checked={form.product_watermark_text_enabled === true || form.product_watermark_text_enabled === 'true'}
+                                  onCheckedChange={(checked) => updateField('product_watermark_text_enabled', checked)}
+                                />
+                                <Label htmlFor="product_watermark_text_enabled" className="cursor-pointer font-semibold text-slate-900 dark:text-slate-100">Bật watermark chữ</Label>
+                              </div>
+                            </div>
+
+                            {(form.product_watermark_text_enabled === true || form.product_watermark_text_enabled === 'true') && (
+                              <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                <div className="space-y-1.5">
+                                  <Label>Nội dung chữ</Label>
+                                  <Input
+                                    value={typeof form.product_watermark_text_content === 'string' ? form.product_watermark_text_content : ''}
+                                    onChange={(e) => updateField('product_watermark_text_content', e.target.value)}
+                                    placeholder="Nhập chữ watermark..."
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label>Cỡ chữ (px)</Label>
+                                    <select
+                                      value={String(form.product_watermark_text_font_size ?? '8')}
+                                      onChange={(e) => updateField('product_watermark_text_font_size', e.target.value)}
+                                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                                    >
+                                      {Array.from({ length: 30 }, (_, i) => i + 1).map((size) => (
+                                        <option key={size} value={size}>{size}px</option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div className="space-y-1.5">
+                                    <Label>Màu chữ</Label>
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="color"
+                                        value={typeof form.product_watermark_text_color === 'string' && form.product_watermark_text_color.startsWith('#') ? form.product_watermark_text_color : '#64748B'}
+                                        onChange={(e) => updateField('product_watermark_text_color', e.target.value)}
+                                        className="w-10 h-10 rounded-md cursor-pointer border border-slate-200 dark:border-slate-700"
+                                      />
+                                      <Input
+                                        value={String(form.product_watermark_text_color ?? '#64748B').toUpperCase()}
+                                        onChange={(e) => updateField('product_watermark_text_color', e.target.value)}
+                                        className="font-mono text-sm uppercase flex-1"
+                                        maxLength={7}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="flex justify-between text-xs text-slate-500">
+                                    <Label>Độ trong suốt chữ</Label>
+                                    <span>{form.product_watermark_text_opacity ?? 35}%</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    value={parseFloat(String(form.product_watermark_text_opacity ?? 35))}
+                                    onChange={(e) => updateField('product_watermark_text_opacity', e.target.value)}
+                                    className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-orange-500"
+                                  />
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <Checkbox
+                                    id="product_watermark_text_repeat"
+                                    checked={form.product_watermark_text_repeat === true || form.product_watermark_text_repeat === 'true'}
+                                    onCheckedChange={(checked) => updateField('product_watermark_text_repeat', checked)}
+                                  />
+                                  <Label htmlFor="product_watermark_text_repeat" className="cursor-pointer text-xs text-slate-600 dark:text-slate-400">Lặp watermark chữ theo hàng ngang</Label>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Preview cột phải (5 cols) */}
+                        <div className="lg:col-span-5 flex flex-col items-center justify-start space-y-4">
+                          <div className="w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col items-center">
+                            <Label className="font-semibold text-slate-900 dark:text-slate-100 self-start mb-3">Preview trực quan</Label>
+
+                            <div 
+                              ref={previewCanvasRef}
+                              className="relative w-64 aspect-square max-w-full border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center select-none touch-none"
+                              onPointerMove={handlePreviewPointerMove}
+                              onPointerUp={handlePreviewPointerUp}
+                              onPointerLeave={handlePreviewPointerUp}
+                              style={{ cursor: activeDrag ? (activeDrag === 'image-resize' ? 'nwse-resize' : 'move') : 'default' }}
+                            >
+                              {/* Ảnh placeholder sản phẩm */}
+                              <img
+                                src={typeof form.product_image_placeholder === 'string' && form.product_image_placeholder ? form.product_image_placeholder : undefined}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover opacity-50 pointer-events-none select-none"
+                              />
+
+                              {/* Watermark hình */}
+                              {(form.product_watermark_image_enabled === true || form.product_watermark_image_enabled === 'true') && typeof form.product_watermark_image_url === 'string' && form.product_watermark_image_url && (
+                                <div
+                                  className="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-1/2 group cursor-move select-none touch-none"
+                                  style={{
+                                    left: `${form.product_watermark_image_x ?? 80}%`,
+                                    top: `${form.product_watermark_image_y ?? 80}%`,
+                                    width: `${form.product_watermark_image_width ?? 28}%`,
+                                    opacity: (parseFloat(String(form.product_watermark_image_opacity ?? 40))) / 100,
+                                  }}
+                                  onPointerDown={(e) => handlePreviewPointerDown(e, 'image-move')}
+                                  onPointerMove={handlePreviewPointerMove}
+                                  onPointerUp={handlePreviewPointerUp}
+                                >
+                                  <img
+                                    src={form.product_watermark_image_url}
+                                    alt="Image Watermark"
+                                    className="w-full h-auto object-contain pointer-events-none select-none border border-dashed border-transparent hover:border-orange-500 rounded-xs"
+                                    draggable="false"
+                                  />
+                                  {/* Resize handle */}
+                                  <div
+                                    className="absolute bottom-[-6px] right-[-6px] w-3.5 h-3.5 bg-orange-500 rounded-full border border-white cursor-se-resize shadow-sm hover:scale-125 transition-transform z-20"
+                                    onPointerDown={(e) => { e.stopPropagation(); handlePreviewPointerDown(e, 'image-resize'); }}
+                                    onPointerMove={handlePreviewPointerMove}
+                                    onPointerUp={handlePreviewPointerUp}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Watermark chữ */}
+                              {(form.product_watermark_text_enabled === true || form.product_watermark_text_enabled === 'true') && typeof form.product_watermark_text_content === 'string' && form.product_watermark_text_content && (
+                                <div
+                                  className="absolute left-0 right-0 transform -translate-y-1/2 whitespace-nowrap text-center select-none pointer-events-auto hover:bg-orange-500/10 border-y border-dashed border-transparent hover:border-orange-500 py-1 touch-none"
+                                  style={{
+                                    top: `${form.product_watermark_text_y ?? 80}%`,
+                                    opacity: (parseFloat(String(form.product_watermark_text_opacity ?? 35))) / 100,
+                                    color: String(form.product_watermark_text_color ?? '#64748B'),
+                                    fontSize: `${form.product_watermark_text_font_size ?? 8}px`,
+                                    fontFamily: '"Be Vietnam Pro", sans-serif',
+                                    cursor: 'ns-resize',
+                                  }}
+                                  onPointerDown={(e) => handlePreviewPointerDown(e, 'text-move')}
+                                  onPointerMove={handlePreviewPointerMove}
+                                  onPointerUp={handlePreviewPointerUp}
+                                >
+                                  {form.product_watermark_text_repeat === true || form.product_watermark_text_repeat === 'true' ? (
+                                    <div className="w-full overflow-hidden inline-flex justify-center gap-4">
+                                      {Array(8).fill(null).map((_, i) => (
+                                        <span key={i}>{form.product_watermark_text_content as string}</span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span>{form.product_watermark_text_content}</span>
+                                  )}
+                                </div>
+                              )}
+
+                              <span className="absolute bottom-1 right-2 text-[9px] font-bold text-slate-500 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xs px-1.5 py-0.5 rounded-sm">Preview</span>
+                            </div>
+
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-3 text-center space-y-1">
+                              <p>💡 <b>Kéo logo hoặc dòng chữ</b> trực tiếp trong ảnh để đổi vị trí.</p>
+                              <p>💡 <b>Kéo chấm tròn màu cam</b> ở góc logo để điều chỉnh kích thước.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -1153,7 +1805,7 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                           onChange={(url, storageId) =>{  updateImageField('site_logo', url, storageId); }}
                           folder="settings"
                           previewSize="md"
-                          smartLogoCrop
+                          smartLogoCrop={false}
                         />
                         <div className="flex items-center justify-between gap-3">
                           <Label>Tên thương hiệu</Label>
@@ -1273,6 +1925,9 @@ function SettingsContent({ section }: { section: SettingsSection }) {
                       </div>
                     </div>
                   )}
+                  {advancedTab === 'product-supplemental' && enableSupplementalContent && (
+                    <ProductSupplementalContentManager />
+                  )}
                 </div>
               ) : (
                 currentFields.map(field => renderField(field))
@@ -1294,21 +1949,40 @@ function SettingsContent({ section }: { section: SettingsSection }) {
         <Card>
           <CardContent className="py-8 text-center text-slate-500">
             Không có trường nào được bật cho nhóm này.
-            <br />
-            <span className="text-sm">Kiểm tra cấu hình tại System → Modules → Settings</span>
           </CardContent>
         </Card>
       )}
 
-      <HomeComponentStickyFooter
-        isSubmitting={isSaving}
-        submitLabel="Lưu thay đổi"
-        hasChanges={hasChanges}
-        submitType="button"
-        onClickSave={handleSave}
-        align="between"
-      >
-        <>
+      {!(section === 'advanced' && advancedTab === 'product-supplemental' && enableSupplementalContent) && (
+        <HomeComponentStickyFooter
+          isSubmitting={isSaving}
+          submitLabel="Lưu thay đổi"
+          hasChanges={hasChanges}
+          submitType="button"
+          onClickSave={handleSave}
+          align="between"
+        >
+        <div className="flex items-center gap-2">
+          {section === 'seo' && (
+            <>
+              <AiSeoImportDialog
+                form={form}
+                onApply={(payload) => {
+                  if (payload.seo_title) updateField('seo_title', payload.seo_title);
+                  if (payload.seo_description) updateField('seo_description', payload.seo_description);
+                  if (payload.seo_keywords) updateField('seo_keywords', payload.seo_keywords);
+                }}
+              />
+              <SeoBuilderDialog
+                form={form}
+                onApply={(payload) => {
+                  if (payload.seo_title) updateField('seo_title', payload.seo_title);
+                  if (payload.seo_description) updateField('seo_description', payload.seo_description);
+                  if (payload.seo_keywords) updateField('seo_keywords', payload.seo_keywords);
+                }}
+              />
+            </>
+          )}
           <span className={cn("text-sm", hasChanges ? "text-amber-600 dark:text-amber-400" : "text-slate-500")}>
             {hasChanges ? 'Có thay đổi chưa lưu' : 'Đã lưu'}
           </span>
@@ -1328,8 +2002,9 @@ function SettingsContent({ section }: { section: SettingsSection }) {
             )}
             {isSaving ? 'Đang lưu...' : hasChanges ? 'Lưu thay đổi' : 'Đã lưu'}
           </Button>
-        </>
+        </div>
       </HomeComponentStickyFooter>
+      )}
     </div>
   );
 }

@@ -210,8 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
   const showNotificationsSection = isModuleEnabled('notifications');
   const showPromotionsSection = isModuleEnabled('promotions');
   const variantEnabled = Boolean(productSettings?.find(setting => setting.settingKey === 'variantEnabled')?.value);
-  const productFramesEnabled = Boolean(productSettings?.find(setting => setting.settingKey === 'enableProductFrames')?.value);
-  const productSupplementalContentEnabled = Boolean(productSettings?.find(setting => setting.settingKey === 'enableProductSupplementalContent')?.value);
+  const productTypesEnabled = Boolean(productSettings?.find(setting => setting.settingKey === 'enableProductTypes')?.value);
 
   const analyticsSectionItemCount = showAnalyticsSection ? 1 : 0;
   const contentSectionItemCount = Number(showPostsSection) + Number(showServicesSection);
@@ -402,6 +401,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                   subItems={[
                     { href: '/admin/products', label: 'Sản phẩm', moduleKey: 'products' },
                     { href: '/admin/categories', label: 'Danh mục sản phẩm', moduleKey: 'products' },
+                    ...(productTypesEnabled ? [{ href: '/admin/product-types', label: 'Loại sản phẩm', moduleKey: 'products' }] : []),
+                    ...(productTypesEnabled ? [{ href: '/admin/attribute-groups', label: 'Thuộc tính lọc', moduleKey: 'products' }] : []),
                     ...(variantEnabled ? [{ href: '/admin/product-options', label: 'Loại tùy chọn', moduleKey: 'products' }] : []),
                     { href: '/admin/orders', label: 'Đơn hàng', moduleKey: 'orders' },
                     { href: '/admin/cart', label: 'Giỏ hàng', moduleKey: 'cart' },
@@ -564,8 +565,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileMenuOpen, setMobileMenuO
                       { href: '/admin/settings/contact', label: 'Liên hệ', moduleKey: 'settings' },
                       { href: '/admin/settings/seo', label: 'SEO', moduleKey: 'settings' },
                       { href: '/admin/settings/advanced', label: 'Nâng cao', moduleKey: 'settings' },
-                      ...(productFramesEnabled ? [{ href: '/admin/settings/product-frames', label: 'Khung sản phẩm', moduleKey: 'settings' }] : []),
-                      ...(productSupplementalContentEnabled ? [{ href: '/admin/settings/product-supplemental-content', label: 'Nội dung bổ sung SP', moduleKey: 'settings' }] : []),
                     ]}
                   />
                 )}

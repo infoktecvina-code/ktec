@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { resolveUniqueSlug } from "./lib/iaSlugs";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -13,7 +13,52 @@ const categoryDoc = v.object({
   order: v.number(),
   parentId: v.optional(v.id("productCategories")),
   slug: v.string(),
+  filterFooterContent: v.optional(v.string()),
+  productDetailSuffixContent: v.optional(v.string()),
+  productDetailFaqItems: v.optional(
+    v.array(
+      v.object({
+        id: v.union(v.string(), v.number()),
+        question: v.string(),
+        answer: v.string(),
+        order: v.number(),
+      })
+    )
+  ),
+  productDetailFaqStyle: v.optional(v.string()),
+  productDetailFaqEnabled: v.optional(v.boolean()),
 });
+
+async function syncCategoryProductTypes(
+  ctx: MutationCtx,
+  categoryId: Id<"productCategories">,
+  productTypeIds: Id<"productTypes">[]
+) {
+  if (productTypeIds.length > 1) {
+    throw new Error("Mỗi danh mục chỉ được gán tối đa 1 kiểu sản phẩm");
+  }
+  const existing = await ctx.db
+    .query("productCategoryTypes")
+    .withIndex("by_category", (q) => q.eq("categoryId", categoryId))
+    .collect();
+
+  const nextSet = new Set(productTypeIds);
+  for (const item of existing) {
+    if (!nextSet.has(item.typeId)) {
+      await ctx.db.delete(item._id);
+    }
+  }
+
+  const existingTypeIds = new Set(existing.map(item => item.typeId));
+  for (const typeId of productTypeIds) {
+    if (!existingTypeIds.has(typeId)) {
+      await ctx.db.insert("productCategoryTypes", {
+        categoryId,
+        typeId,
+      });
+    }
+  }
+}
 
 export const listAll = query({
   args: { limit: v.optional(v.number()) },
@@ -441,8 +486,24 @@ export const create = mutation({
     order: v.optional(v.number()),
     parentId: v.optional(v.id("productCategories")),
     slug: v.string(),
+    filterFooterContent: v.optional(v.string()),
+    productDetailSuffixContent: v.optional(v.string()),
+    productDetailFaqItems: v.optional(
+      v.array(
+        v.object({
+          id: v.union(v.string(), v.number()),
+          question: v.string(),
+          answer: v.string(),
+          order: v.number(),
+        })
+      )
+    ),
+    productDetailFaqStyle: v.optional(v.string()),
+    productDetailFaqEnabled: v.optional(v.boolean()),
+    productTypeIds: v.optional(v.array(v.id("productTypes"))),
   },
   handler: async (ctx, args) => {
+    const { productTypeIds, ...categoryArgs } = args;
     const hierarchyFeature = await ctx.db
       .query("moduleFeatures")
       .withIndex("by_module_feature", (q) =>
@@ -466,13 +527,17 @@ export const create = mutation({
       nextOrder = lastCategory ? lastCategory.order + 1 : 0;
     }
     
-    return  ctx.db.insert("productCategories", {
-      ...args,
+    const categoryId = await ctx.db.insert("productCategories", {
+      ...categoryArgs,
       slug: resolvedSlug.slug,
       order: nextOrder,
       active: args.active ?? true,
       parentId: hierarchyEnabled ? args.parentId : undefined,
     });
+    if (productTypeIds) {
+      await syncCategoryProductTypes(ctx, categoryId, productTypeIds);
+    }
+    return categoryId;
   },
   returns: v.id("productCategories"),
 });
@@ -487,6 +552,21 @@ export const update = mutation({
     order: v.optional(v.number()),
     parentId: v.optional(v.id("productCategories")),
     slug: v.optional(v.string()),
+    filterFooterContent: v.optional(v.string()),
+    productDetailSuffixContent: v.optional(v.string()),
+    productDetailFaqItems: v.optional(
+      v.array(
+        v.object({
+          id: v.union(v.string(), v.number()),
+          question: v.string(),
+          answer: v.string(),
+          order: v.number(),
+        })
+      )
+    ),
+    productDetailFaqStyle: v.optional(v.string()),
+    productDetailFaqEnabled: v.optional(v.boolean()),
+    productTypeIds: v.optional(v.array(v.id("productTypes"))),
   },
   handler: async (ctx, args) => {
     const hierarchyFeature = await ctx.db
@@ -497,7 +577,7 @@ export const update = mutation({
       .unique();
     const hierarchyEnabled = hierarchyFeature?.enabled === true;
 
-    const { id, ...updates } = args;
+    const { id, productTypeIds, ...updates } = args;
     const category = await ctx.db.get(id);
     if (!category) {throw new Error("Category not found");}
     if (!hierarchyEnabled) {
@@ -514,6 +594,9 @@ export const update = mutation({
       }
     }
     await ctx.db.patch(id, updates);
+    if (productTypeIds) {
+      await syncCategoryProductTypes(ctx, id, productTypeIds);
+    }
     return null;
   },
   returns: v.null(),
