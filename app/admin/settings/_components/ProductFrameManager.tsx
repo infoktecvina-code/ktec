@@ -294,7 +294,7 @@ export function ProductFrameManager() {
   }, [settingsData]);
 
   const selectedFrame = useMemo(
-    () => frames?.find((frame) => frame._id === selectedFrameId) ?? null,
+    () => frames?.find((frame: any) => frame._id === selectedFrameId) ?? null,
     [frames, selectedFrameId]
   );
 
@@ -338,7 +338,7 @@ export function ProductFrameManager() {
   }
 
   const normalizedFrames = useMemo<ProductImageFrame[]>(
-    () => (frames ?? []).map((frame) => ({
+    () => (frames ?? []).map((frame: any) => ({
       ...frame,
       aspectRatio: resolveProductImageAspectRatio(frame.aspectRatio),
       overlayImageUrl: frame.overlayImageUrl ?? undefined,
