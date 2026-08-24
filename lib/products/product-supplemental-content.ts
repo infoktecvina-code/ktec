@@ -20,4 +20,3 @@ export const sortSupplementalFaqItems = (
 ) => {
   return [...(items ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 };
-
